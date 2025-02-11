@@ -1,0 +1,1619 @@
+---
+title: "supplementary code"
+format: pdf
+output:
+   toc: false
+execute:
+  eval: false
+warning: false
+message: false
+---
+
+## Landscape analysis
+
+```{r,results="hide"}
+library(ggplot2)
+library(vegan)
+library(ggrepel)
+```
+
+```{r,results="hide"}
+env <- read.csv("data/Diet_analysis/environmental_factor.csv",
+                row.names = 1, check.names=F)
+
+#model for environment
+env.pca <- rda(env, scale. = TRUE)
+pca <- prcomp(env, scale. = TRUE)
+summary(env.pca) #check model performance
+#plot(env.pca) #check pattern
+
+#extract the value of the proportion explained PC1 and PC2
+exp_by_x <- (as.list(env.pca$CA$eig)$PC1)/(env.pca$tot.chi)*100
+exp_by_y <- (as.list(env.pca$CA$eig)$PC2)/(env.pca$tot.chi)*100
+
+#fit constrained axis
+fit.env <- envfit(env.pca, env)
+
+#visualization
+p <- ggplot() +
+  geom_point(aes(x=env.pca$CA$u[,1], y=env.pca$CA$u[,2]), col = "#BB0000", size = 2) +
+  geom_segment(aes(xend=1.2*fit.env$vectors$arrows[,1], 
+                   yend=1.2*fit.env$vectors$arrows[,2], 
+                   x=0, y=0), 
+               colour="black", linewidth = 0.8, 
+               linetype=1, 
+               arrow=arrow(length = unit(0.02, "npc"))) +
+  geom_text(aes(x=fit.env$vectors$arrows[,1]*0.6, 
+                y=fit.env$vectors$arrows[,2]*0.6, 
+                label = colnames(env)),
+            family = 'sans', size = 4) +
+  geom_label_repel(aes(x=env.pca$CA$u[,1], 
+                       y=env.pca$CA$u[,2], 
+                       color = "#BB0000",
+                       label=row.names(env.pca$CA$u)), 
+                   alpha = 0.9, size = 4)+
+  xlab(paste('PC1 (', round(exp_by_x, 2), '%)', sep = '')) + 
+  ylab(paste('PC2 (', round(exp_by_y, 2), '%)', sep = ''))+
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'),
+        legend.text = element_text(size=4,family = 'sans'),
+        legend.position="none", axis.title=element_text(size=12,face = 'bold',family = 'sans'),
+        axis.text = element_text(size = 12,family = 'sans'))
+
+ggsave(file="landscape_PCA.svg", plot=p, height = 4, width =6 )
+
+```
+
+## Diet analysis
+
+```{r,results="hide"}
+library(vegan)
+library(tidyverse)
+library(plantlist)
+library(ggrepel)
+library(devtools)
+```
+
+### data processing for diet structure
+
+```{r,results="hide"}
+##load data
+osmia_sp <- read.csv('data/Diet_analysis/osmia_sp.csv',
+                    check.names=F)
+env <- read.csv("data/Diet_analysis/environmental_factor.csv",
+                row.names = 1, check.names=F)
+
+##data_clean
+osmia_sp_clean <- osmia_sp %>%
+  rowwise() %>%
+  filter(any(c_across(-Species) >= 0.01)) %>%
+  ungroup() #delete the species with data < 0.01 in every site
+
+
+#manual calibration
+osmia_sp_clean <- osmia_sp_clean %>%
+  mutate(Species = case_when(
+    Species == "Ananas comosus" ~ "Billbergia pyramidalis",
+    Species == "Macadamia integrifolia" ~ "Platanus x hispanica",
+    TRUE ~ Species)) #Transforming non-existent species into the closest species exist in Jiangsu
+
+##got the taxa information for all plant species
+plantlist <- TPL(osmia_sp_clean$Species)
+
+colnames(plantlist) <- c('Species', 'Genus', 'Family',
+                         'Family_number', 'Order', 'Group') #match colnames
+osmia_clean <- inner_join(osmia_sp_clean, plantlist, 
+                          by = 'Species')
+##barplot
+diet_bar <- pivot_longer(osmia_clean[1:13], 
+                         names_to = "Site", 
+                         -c('Species', 'Genus', 'Family'))
+
+#calculate the total proportion of other taxa for each site
+diet_bar <- diet_bar %>% group_by(Site) %>%
+  summarise(sum = sum(value)) %>%
+  mutate(value = 1 - sum) %>%
+  select(-sum) %>%
+  bind_rows(diet_bar) %>%
+  mutate(Species = case_when(
+    is.na(Species) ~ "Other taxa",
+    TRUE ~ Species)) %>%
+  mutate(Genus = case_when(
+    is.na(Genus) ~ "Other taxa",
+    TRUE ~ Genus)) %>%
+  mutate(Family = case_when(
+    is.na(Family) ~ "Other taxa",
+    TRUE ~ Family)) %>%
+  ungroup()
+
+#arrange plant taxa by the phylogenetics
+diet_bar$Species <- factor(diet_bar$Species,
+                             levels = c("Brassica napus","Brassica rapa","Brassica oleracea",
+                                        "Raphanus sativus",
+                                        "Lupinus angustifolius",
+                                        "Pisum sativum",
+                                        "Trifolium pratense",
+                                        "Malus sylvestris","Malus domestica","Prunus mume",
+                                        "Solanum lycopersicum",
+                                        "Platanus x hispanica",
+                                        "Billbergia pyramidalis",
+                                        "Other taxa"))
+
+diet_bar$Genus <- factor(diet_bar$Genus,
+                           levels = c("Brassica", "Raphanus",
+                                      "Lupinus", "Pisum", "Trifolium",
+                                      "Malus","Prunus",
+                                      "Solanum",
+                                      "Platanus",
+                                      "Billbergia",
+                                      "Other taxa"))
+
+diet_bar$Family <- factor(diet_bar$Family,
+                         levels = c("Brassicaceae", "Fabaceae",
+                                    "Rosaceae", "Solanaceae", 
+                                    "Platanaceae", "Bromeliaceae",
+                                    "Other taxa"))
+
+#arrange sites with the number
+diet_bar$Site <- factor(diet_bar$Site,
+                           levels = c("S1","S2","S3","S4",
+                                      "S5","S6","S7","S8",
+                                      "S9","S10"))
+
+
+write_csv(diet_bar, "diet_bar.csv")
+```
+
+### PCA analysis
+
+```{r,results="hide"}
+# PCA ---------------------------------------------------------------------
+
+
+diet <- osmia_clean[2:11]
+row.names(diet) <- osmia_clean$Species
+diet <- as.data.frame(t(diet))
+
+#model for diet
+diet.pca <- rda(diet)
+summary(diet.pca) #check model performance
+#plot(diet.pca) #check pattern
+
+#extract the value of the proportion explained PC1 and PC2
+exp_by_x <- (as.list(diet.pca$CA$eig)$PC1)/(diet.pca$tot.chi)*100
+exp_by_y <- (as.list(diet.pca$CA$eig)$PC2)/(diet.pca$tot.chi)*100
+
+#fit constrained axis
+env <- scale(env, center = T)
+fit.o <- envfit(diet.pca, diet)
+fit.e <- envfit(diet.pca, env)
+
+#visualization
+p =  ggplot() +
+  geom_point(aes(x=diet.pca$CA$u[,1], y=diet.pca$CA$u[,2]), col = "#BB0000", size = 3) +
+  geom_segment(aes(xend=1.2*fit.o$vectors$arrows[,1], 
+                   yend=1.2*fit.o$vectors$arrows[,2], 
+                   x=0, y=0), 
+               colour="black", linewidth = 0.8, 
+               linetype=1, 
+               arrow=arrow(length = unit(0.02, "npc"))) +
+  geom_text(aes(x=fit.o$vectors$arrows[,1]*0.6, 
+                y=fit.o$vectors$arrows[,2]*0.6, 
+                label = colnames(diet)),
+            family = 'sans', size = 4) +
+  geom_segment(aes(xend=1.4*fit.e$vectors$arrows[,1], 
+                   yend=1.4*fit.e$vectors$arrows[,2], 
+                   x=0, y=0), colour="black", linewidth = 1.2, 
+               linetype=2, arrow=arrow(length = unit(0.02, "npc")))+
+  geom_text(aes(x=fit.e$vectors$arrows[,1]*1, 
+                y=fit.e$vectors$arrows[,2]*1, 
+                label = colnames(env)),size = 4, 
+            family = 'sans', fontface = "bold") +
+  geom_label_repel(aes(x=diet.pca$CA$u[,1], 
+                       y=diet.pca$CA$u[,2], 
+                       color = "#BB0000",
+                       label=row.names(diet.pca$CA$u)), 
+                   alpha = 0.9, size = 4)+
+  xlab(paste('PC1 (', round(exp_by_x, 2), '%)', sep = '')) + 
+  ylab(paste('PC2 (', round(exp_by_y, 2), '%)', sep = ''))+
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'),
+        legend.text = element_text(size=12,family = 'sans'),
+        legend.position="none", axis.title=element_text(size=14,face = 'bold',family = 'sans'),
+        axis.text = element_text(size = 12,family = 'sans'))
+
+ggsave(file="PCA_1.svg", plot=p, height = 8, width =10 )
+```
+
+## Bacteriome analysis
+
+### PCA analysis
+
+```{code}
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+```
+
+```{code}
+
+file_path = "~/data/Bacteriome_analysis/Bacteria_Relative_Abundance.csv"
+df = pd.read_csv(file_path)
+site_names = df['Site'].tolist()
+microbe_names = df.columns[1:]
+
+# Perform PCA
+pca = PCA(n_components=2)
+pca_result = pca.fit_transform(df[microbe_names])
+
+pca_df = pd.DataFrame(data=pca_result, columns=['PC1', 'PC2'])
+pca_df['Site'] = df['Site']
+
+explained_variance_ratio = pca.explained_variance_ratio_
+
+# Draw PCA plot
+plt.figure(figsize=(20, 16))
+plt.scatter(pca_df['PC1'], pca_df['PC2'], color='red', alpha=0.7, s=40)
+
+arrow_length_multiplier = 100
+
+# Add arrows and labels
+for i, name in enumerate(microbe_names):
+    plt.arrow(0, 0, pca.components_[0, i] * arrow_length_multiplier, pca.components_[1, i] * arrow_length_multiplier, 
+              color='black', alpha=0.5, head_width=1.5, head_length=2, linewidth=3)
+    if name in ["Pseudomonas", "Sodalis", "Rosenbergiella","Marinifilum"]:
+        plt.text(pca.components_[0, i] * arrow_length_multiplier * 1.05, 
+                 pca.components_[1, i] * arrow_length_multiplier * 1.05, name, 
+                 color='black', fontsize=18)
+
+# Add label for each site
+for i, site_name in enumerate(site_names):
+    plt.annotate(site_name, (pca_df['PC1'][i], pca_df['PC2'][i]), fontsize=16, color='black')
+
+# Adds the proportion information to the axis label
+plt.xlabel(f'PC1 ({explained_variance_ratio[0]:.4f} variance)', fontsize=18)
+plt.ylabel(f'PC2 ({explained_variance_ratio[1]:.4f} variance)', fontsize=18)
+plt.xticks(fontsize=12)
+plt.yticks(fontsize=12)
+plt.axis('equal')
+plt.grid(False)
+
+# export
+plt.tight_layout()
+save_path = "PCA_plot.svg"
+plt.savefig(save_path, format='svg')
+plt.show()
+
+```
+
+### CAZyme data processing
+
+```{r,results="hide"}
+library(tidyverse)
+library(gtools)
+library(dplyr)
+library(tidyr)
+```
+### Process different CAZyme data: CBM PL GH CE AA SLH
+
+```{r,results="hide"}
+
+# Function to merge columns
+merge_columns <- function(df) {
+  # Getting the column names
+  col_names <- colnames(df)[-1]
+  
+  # Finding the unique base patterns (like "AA123")
+  base_patterns <- unique(sub("(_\\d+)?$", "", col_names))
+  
+  for (pattern in base_patterns) {
+    # Finding columns that match the pattern
+    # Check if the column exists and add it if not
+    if (!(pattern %in% names(df))) {
+        df[[pattern]] <- 0  # You can also initialize this column with any value, e.g., 0, "", etc.
+    }
+    col_names <- colnames(df)
+      
+    matching_cols <- grep(paste0("^", pattern, "(_\\d+)?$"), col_names, value = TRUE)
+    subCols <- setdiff(matching_cols, pattern)
+    
+    if (length(matching_cols) > 1) {
+      # Summing across rows for columns that match the pattern
+      df[[pattern]] <- rowSums(df[matching_cols], na.rm = TRUE)
+      # Remove columns except the base
+      df <- df[, !colnames(df) %in% subCols]
+    }
+  }
+  names(df) <- gsub("_\\d+$", "", names(df))
+  
+  return(df)
+}
+# Heatmap code
+dtf <- read.csv('data/Bacteriome_analysis/final_combined_data.csv')
+#head(dtf)
+
+# Desired order of species
+species_order <- c("Marinifilum", "Myceligenerans", "Curtobacterium", "Bradyrhizobium", "Wolbachia", "Chromobacterium", "Acinetobacter", "Pseudomonas", "Yersinia", "Serratia", "Rahnella", "Arsenophonus", "Xenorhabdus", "Klebsiella", "Enterobacter", "Tatumella", "Erwinia", "Pantoea", "Rosenbergiella", "Sodalis")
+
+CAZyme1 <- dtf %>%
+  filter(str_detect(CAZyme1, "^PL")) %>%
+  mutate(Bacteria_Site = str_c(bacteria, Site, sep = "_"),
+  ID = str_c(bacteria, Site, CAZyme1))
+
+CAZyme2 <- dtf %>%
+  filter(str_detect(CAZyme2, "^PL")) %>%
+  mutate(Bacteria_Site = str_c(bacteria, Site, sep = "_"),
+  ID = str_c(bacteria, Site, CAZyme2))
+
+
+df <- bind_rows(CAZyme1, CAZyme2) %>%
+    group_by(ID) %>% 
+    mutate(Depth = sum(depth)) %>% 
+    distinct(ID, .keep_all = TRUE) %>% 
+    ungroup() %>% 
+    mutate(PL = str_extract(ID, "PL.*")) %>% 
+    select(Bacteria_Site, PL, Depth) %>% 
+    pivot_wider(names_from =PL, values_from = Depth) %>% 
+    mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+    filter(if_any(-Bacteria_Site, ~ .x >= 20)) %>%  # Remove rows where all values are < 20
+    select(Bacteria_Site, where(~ any(.x >= 20)))    # Remove columns where all values are < 20
+
+df <- bind_rows(CAZyme1, CAZyme2) %>%
+    group_by(ID) %>% 
+    mutate(Depth = sum(depth)) %>% 
+    distinct(ID, .keep_all = TRUE) %>% 
+    ungroup() %>% 
+    mutate(PL = str_extract(ID, "PL.*")) %>% 
+    select(Bacteria_Site, PL, Depth) %>% 
+    pivot_wider(names_from =PL, values_from = Depth) %>% 
+    mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+    filter(if_any(-Bacteria_Site, ~ .x >= 20)) %>%  # Remove rows where all values are < 20
+    select(Bacteria_Site, where(~ any(.x >= 20))) 
+
+
+# Applying the function to your data frame
+df <- merge_columns(df)
+
+# Set 'Bacteria_Site' column as row names
+rowName <- df$Bacteria_Site
+row.names(df) <- rowName
+
+# Optionally, remove the 'Bacteria_Site' column
+df <- df[, -which(names(df) == "Bacteria_Site")]
+
+df <- df %>% select(mixedorder(colnames(df)))
+
+df_normalized <- as.data.frame(df)
+
+row.names(df_normalized) <- rowName
+# Add a new column for species from row names
+df_normalized$species <- sub("_S\\d+$", "", rownames(df_normalized))
+df_normalized$site <- sub("^[^_]+_", "", rownames(df_normalized))
+
+df_reordered <- df_normalized %>%
+  mutate(species = factor(species, levels = species_order)) %>%
+  arrange(species) %>%
+  select(-species, -site) 
+
+df_reordered_site_bac <- df_normalized %>%
+  mutate(species = factor(species, levels = species_order)) %>%
+  arrange(species)  # Remove the species column after sorting
+
+# Update the row names based on new order
+rownames(df_reordered) <- rownames(df_normalized)[order(factor(df_normalized$species, levels = species_order))]
+
+rownames(df_reordered_site_bac) <- rownames(df_normalized)[order(factor(df_normalized$species, levels = species_order))]
+
+
+# Filter rows: Require at least 2 non-zero values in each row
+filtered_data <- df_reordered_site_bac %>%
+  filter(rowSums(. != 0) >= 3)
+
+# Filter columns: Require at least 2 non-zero values in each column
+filtered_data <- filtered_data[, colSums(filtered_data != 0) >= 3]
+
+# Save the filtered data to a new CSV
+write.csv(filtered_data, "filtered_GH_matrix.csv", row.names = FALSE)
+
+```
+
+```{r,results="hide"}
+
+# Bubble plot code
+
+dtf <- read.csv('data/Bacteriome_analysis/final_combined_data.csv')
+#head(dtf)
+
+# Desired order of species
+species_order <- c("Marinifilum", "Myceligenerans", "Curtobacterium", "Bradyrhizobium", "Wolbachia", "Chromobacterium", "Acinetobacter", "Pseudomonas", "Yersinia", "Serratia", "Rahnella", "Arsenophonus", "Xenorhabdus", "Klebsiella", "Enterobacter", "Tatumella", "Erwinia", "Pantoea", "Rosenbergiella", "Sodalis")
+
+CAZyme1 <- dtf %>%
+  filter(str_detect(CAZyme1, "^CBM")) %>%
+  mutate(Bacteria_Site = str_c(bacteria, Site, sep = "_"),
+  ID = str_c(bacteria, Site, CAZyme1))
+
+CAZyme2 <- dtf %>%
+  filter(str_detect(CAZyme2, "^CBM")) %>%
+  mutate(Bacteria_Site = str_c(bacteria, Site, sep = "_"),
+  ID = str_c(bacteria, Site, CAZyme2))
+
+
+df <- bind_rows(CAZyme1, CAZyme2) %>%
+    group_by(ID)%>% 
+    mutate(Depth = sum(depth)) %>% 
+    distinct(ID, .keep_all = TRUE) %>% 
+    ungroup() %>% 
+    mutate(CAZYME = str_extract(ID, "CBM.*")) %>% 
+    select(Bacteria_Site, CAZYME, Depth) %>% 
+    pivot_wider(names_from = CAZYME, values_from = Depth) %>% 
+    mutate(across(everything(), ~ replace_na(.x, 0)))
+
+
+
+
+# Applying the function to your data frame
+df <- merge_columns(df)
+
+# Set 'Bacteria_Site' column as row names
+rowName <- df$Bacteria_Site
+row.names(df) <- rowName
+
+# Optionally, remove the 'Bacteria_Site' column
+df <- df[, -which(names(df) == "Bacteria_Site")]
+
+df <- df %>% select(mixedorder(colnames(df)))
+
+
+#df_normalized <- as.data.frame(scale(df))
+df_normalized <- as.data.frame(df)
+
+row.names(df_normalized) <- rowName
+# Add a new column for species from row names
+df_normalized$species <- sub("_S\\d+$", "", rownames(df_normalized))
+df_normalized$site <- sub("^[^_]+_", "", rownames(df_normalized))
+
+df_reordered <- df_normalized %>%
+  mutate(species = factor(species, levels = species_order)) %>%
+  arrange(species) %>%
+  select(-species, -site)  # Remove the species column after sorting
+
+df_bac_medium <- df_normalized %>%
+  mutate(species = factor(species)) %>%
+  arrange(species) %>%
+  group_by(species) %>%
+  summarise(across(starts_with("CBM"), median, na.rm = TRUE))
+
+
+# Update the row names based on new order： others remain
+df_in_order <- df_bac_medium %>%
+  filter(species %in% species_order) %>%
+  mutate(species = factor(species, levels = species_order)) %>%
+  arrange(species)
+df_not_in_order <- df_bac_medium %>%
+  filter(!species %in% species_order)
+df_bac_medium <- bind_rows(df_in_order, df_not_in_order)
+
+gathered_data <- df_bac_medium %>%
+  pivot_longer(cols = starts_with("CBM"), names_to = "sample", values_to = "value") %>%
+  filter(value > 0)%>%
+  select(sample,value,species)
+
+write.csv(gathered_data, "CBM_combined_bubble.csv", row.names = FALSE)
+
+```
+
+## Virome analysis
+
+```{r}
+library(readr)
+library(GGally)
+library(ggplot2)
+library(viridis)
+library(hrbrthemes) 
+```
+
+```{r,results="hide"}
+Virus_depth <- read_csv("data/Virome_analysis/virus_depth_test.csv")
+
+Virus_depth$virus_taxa <- as.factor(Virus_depth$virus_taxa)
+
+custom_colors <- c(
+  "AmFV" = "#bf81fd",
+  "Aliusviridae" = "#ae5993",
+  "Chuviridae" = "#fb718c",
+  "Orthomyxoviridae" = "#f88dbb",
+  "Adintoviridae" = "#f7b7f8",
+  "Polydnaviriformidae" = "#f9cde4",
+  "Totiviridae" = "#f0d6d6"
+)
+
+# Ensure you set the factor levels of the virus taxa column accordingly
+Virus_depth$virus_taxa <- factor(Virus_depth$virus_taxa, levels = c(
+  "AmFV",
+  "Aliusviridae",
+  "Chuviridae",
+  "Orthomyxoviridae",
+  "Adintoviridae",
+  "Polydnaviriformidae",
+  "Totiviridae"
+))
+
+
+# Generate the parallel coordinate plot
+p <- ggparcoord(Virus_depth,
+                columns = 2:11,  # S1 to S10
+                groupColumn = 12, # virus_taxa
+                order = c(1:11),  # Ensures x-axis order follows S1 to S10
+                scale = "globalminmax",
+                showPoints = TRUE, 
+                title = "",
+                alphaLines = 0.4) + 
+  scale_color_manual(values = custom_colors) +  # Apply custom colors
+  theme_ipsum() +
+  theme(
+    plot.title = element_text(size = 13),
+    axis.text.x = element_text(hjust = 1, size = 16),
+    axis.text.y = element_text(hjust = 1, size = 16),
+    legend.text = element_text(face = "italic")  # Italicize legend text
+  ) +
+  xlab("") +
+  ylab("Depth") +
+  guides(size = FALSE) +
+  geom_line(size = 0.4, alpha=0.5) +
+  theme(axis.text = element_text(size = 16), 
+        axis.title = element_text(size = 16), 
+        legend.text = element_text(size = 16),
+        legend.title = element_text(family = "Arial", size = 18), 
+        legend.position = 'right',
+        legend.key.height = unit(1, 'cm'))  # Adjust spacing between legend items
+
+p1 <- p + 
+  geom_point(aes(shape = virus_taxa), size = 2) +
+  scale_shape_manual(values = c(16, 15, 17, 18, 9, 8, 7)) 
+
+
+ggsave("virus_parallel_coordinate_plot.svg", plot = p1, height = 8, width =10)
+```
+
+## ARG analysis
+
+```{r,results="hide"}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(igraph)
+library(ggraph)
+library(patchwork) 
+library(hrbrthemes)
+library(ggnewscale)
+library(tidyr) 
+```
+
+### data processing
+
+```{r,results="hide"}
+
+resfam_card <- read.csv('data/ARG_analysis/resfam/resfam_CARD_0419.csv')
+
+bee_species <- read.csv("data/ARG_analysis/bee_species.csv")
+
+arg_total = data.frame()
+bac_total = data.frame()
+arg_mge_bac_total = data.frame()
+
+file_list <- list.files(path = "card/", pattern = "^OsmiaGutS[0-9]+\\.merged\\.csv$")
+
+for (i in file_list) {
+  j <- sub("\\.merged\\.csv$", "", i)
+  
+  # ARG
+  {
+    # SARG
+    {    
+      sarg_full <- read.csv("SARG/1.SARG_v3.2_20220917_Full_structure.csv")
+      colnames(sarg_full)[colnames(sarg_full) == "SARG.Seq.ID"] <- "sseqid"  
+      sarg <- read.csv(paste0("SARG/", j, ".csv"), header = FALSE, col.names = c('qseqid', 'sseqid', 'pident', 'length', 'evalue', 'bitscore', 'qcovhsp', 'qtitle'))
+      sarg <- sarg %>% 
+        filter(as.numeric(pident) >80) %>% 
+        filter(as.numeric(evalue) < (exp(-10))) %>% 
+        filter(as.numeric(qcovhsp) > 70) %>% 
+        mutate(assemblyID = sub("^(.*?_.*?)(_.*)$", "\\1",qtitle)) %>% 
+        mutate(geneID = qtitle) %>%
+        mutate_all(~ifelse(. == "", NA, .)) %>% 
+        mutate(sseqid = as.character(sseqid)) %>%
+        left_join(sarg_full[, c(2,3,5,6)]) %>% 
+        select(9:13)
+      
+      colnames(sarg)[colnames(sarg) == "Type"] <- "SARG_drug class"  
+      colnames(sarg)[colnames(sarg) == "HMM.category"] <- "SARG_model name"  
+      colnames(sarg)[colnames(sarg) == "Mechanism.group"] <- "SARG_mechanism"  
+    }
+    
+    # SARGfam
+    {    
+      sargfam <- read.csv(paste0("sargfam/", j, ".out.tbl.csv"), header = FALSE, col.names = c('target_name','accession','query_name', 'accession2', 'evalue_full_seq', 'score_full_seq', 'bias_full_seq', 'evalue_best_domain', 'score_best_domain','description_of_target', '11','12','13','14','15','16','17','18','19'))
+      sargfam <- sargfam %>% 
+        select(1:10) %>%
+        slice(3:(nrow(sargfam) - 10)) %>%
+        mutate(across(5:10, as.numeric)) %>% 
+        filter(evalue_full_seq < 10^(-5), 
+               evalue_best_domain < 10^(-5)) %>% 
+        mutate(assemblyID = sub("^(.*?_.*?)(_.*)$", "\\1",target_name)) %>% 
+        mutate(geneID = target_name) %>% 
+        group_by(assemblyID) %>% arrange(desc(evalue_full_seq)) %>% slice(1) %>% ungroup() %>% 
+        mutate("sargfam_drug class" =sub("__.*", "",query_name)) %>% 
+        mutate(query_name =sub(".*__", "", query_name)) %>% 
+        mutate("sargfam_model name" =sub("_train_msa", "", query_name),
+               `sargfam_model name` = ifelse(`sargfam_model name` == "TolC", 'tolC', `sargfam_model name`)) %>% 
+        select(11:14) 
+    }
+    
+    #CRAD
+    {    
+      card <- read.csv(paste0("card/", i), header = FALSE, 
+                       col.names = c('target_name','ARO Accession','pidnet','length','evalue','bitscore','qcovhsp','qtitle',"Model Name","Drug Class"))
+      card <- card %>% 
+        filter(as.numeric(pidnet) >80 ) %>% filter(as.numeric(qcovhsp) > 50) %>% 
+        group_by(target_name) %>% 
+        arrange(desc('e-value')) %>%
+        slice(1) %>%
+        ungroup() %>% 
+        mutate(assemblyID = sub("^(.*?_.*?)(_.*)$", "\\1",target_name)) %>% 
+        mutate(geneID = target_name) %>% 
+        group_by(assemblyID) %>% 
+        mutate(`card_model name` = paste(unique(`Model.Name`), collapse = ";"), 
+               `card_drug class` = paste(unique(`Drug.Class`), collapse = ";")) %>% 
+        select(11:14) %>% 
+        mutate_all(~ifelse(. == "", NA, .))
+    }
+    
+    # Resfam
+    {    
+      resfam <- read.csv(paste0("resfam/", j, ".out.tbl.csv"), header = FALSE)
+      resfam <- resfam %>%
+        setNames(unlist(.[1,])) %>%
+        select(1:10) %>%
+        slice(3:(nrow(resfam) - 10)) %>%
+        mutate(across(5:10, as.numeric)) %>% 
+        filter(evalue_full_seq < 10^(-5), 
+               evalue_best_domain < 10^(-5),
+               score_full_seq > 90,
+               score_best_domain > 90) %>% 
+        group_by(target_name) %>% arrange(desc(evalue_full_seq)) %>% slice(1) %>% 
+        select(1, 3, 4, 5) %>% setNames(c('geneID', 'resfam_model name', 'ResfamID', 'e-value')) %>% ungroup() %>% 
+        mutate(assemblyID = sub("^(.*?_.*?)(_.*)$", "\\1",geneID)) %>%
+        left_join(resfam_card) %>% select(c(1,5,7,8,9,14))
+    }
+    
+    # merge the outcome of 5 methods
+    arg <- card %>% merge(resfam, all = TRUE) %>% merge(sarg, all = TRUE) %>% merge(sargfam, all = TRUE)
+    arg_total <- rbind(arg_total, arg)
+  } 
+  
+  #taxo
+  { 
+    taxo <- read.csv(paste0("taxo/", j,".merged.csv"),header = TRUE) 
+    colnames(taxo)[colnames(taxo) == "qseqid"] <- "assemblyID"
+    taxo <- taxo %>% filter(!(assemblyID == "")) 
+    
+    if ("pident" %in% colnames(taxo)) {taxo <- taxo %>% group_by(assemblyID) %>% arrange(desc(pident)) %>% slice(1) %>% ungroup()}
+    
+    taxo <- taxo %>%
+      mutate(genus = as.character(genus)) %>%
+      select(c("assemblyID", "kindom","phylum","class","order","family","genus","species")) %>% 
+      filter(kindom == "Bacteria")
+    
+    
+    abundance <- read.csv(paste0("abundance/",j, ".csv"), header = FALSE)
+    abundance <- abundance %>%
+      filter(V4 !="Depth:nan") %>% 
+      mutate(length = as.numeric(sub("^(\\d+).*", "\\1",V2))) %>% 
+      mutate(geneID = sub(":.*", "", V1)) %>%
+      mutate(assemblyID = sub("^(.*?_.*?)(_.*)$", "\\1",geneID)) %>% 
+      mutate(V4 = as.numeric(sub(".*:", "", V4))) %>%
+      mutate(nor_abun = length*V4) %>% 
+      #(gene length *percentage)/depth
+      # filter(!is.na(nor_abun)) %>% 
+      select(6:8)
+    
+    
+  }  
+  #merge
+  {
+    bacteria <- merge(taxo, abundance) %>% mutate(total = sum(nor_abun, na.rm = TRUE)) %>% 
+      group_by(genus) %>% mutate(genus_total = sum(nor_abun, na.rm = TRUE)) %>% ungroup()
+    
+    arg_mge_bac <- arg %>% 
+      merge(mge, all = TRUE) %>% 
+      merge(bacteria) %>% 
+      mutate(rel_abun = nor_abun/total) %>% 
+      mutate(sampleID = paste0(j))
+    
+    arg_mge_bac_total <- rbind(arg_mge_bac_total, arg_mge_bac) %>% 
+      filter(!(is.na(`card_model name`) & is.na(`rgi_model name`) & is.na(Mechanism.Classification) &
+                 is.na(`SARG_model name`) & is.na(`sargfam_drug class`)))
+      
+  }
+}
+
+```
+
+### visualization
+
+```{r,results="hide"}
+library(ggplot2)
+library(dplyr)
+library(igraph)
+library(ggraph)
+library(patchwork) 
+library(hrbrthemes)
+library(ggnewscale)
+library(tidyr)
+library(scales)
+```
+
+```{r,results="hide"}
+total <- read.csv("data/ARG_analysis/ARG_total.csv")
+
+
+# Total ARG ---------------------------------------------------------------
+
+
+{
+total$sampleID <- gsub("OsmiaGutS", "S", total$sampleID)
+order_levels <- paste("S", 1:10, sep = "")
+total$sampleID <- factor(total$sampleID, levels = order_levels, ordered = TRUE)
+
+  sum_rel_abun <- total %>% 
+    group_by(sampleID) %>%
+    summarise(total_rel_abun = sum(rel_abun, na.rm = TRUE))
+  p <- ggplot(sum_rel_abun, aes(x = sampleID, y = total_rel_abun)) +
+    geom_bar(stat = "identity") +
+    labs(title = "Sum of rel_abun by SampleID",
+         x = "SampleID",
+         y = "Sum of rel_abun") +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+    theme_minimal()
+}
+
+
+#  drug class abundance ---------------------------------------------------
+
+
+{
+  relabun_by_DrugClass <- total %>%
+    group_by(sampleID, drug_class) %>%
+    summarise(total_rel_abun = sum(rel_abun, na.rm = TRUE)) %>%
+    ungroup() %>% 
+    mutate(drug_class = factor(drug_class, levels = c("Other", "nitroimidazole", "aminocoumarin", "elfamycin", "diaminopyrimidine", "tetracycline", "rifamycin", "quinolone", "aminoglycoside", "polymyxin", "fosmidomycin", "MLS", "beta_lactam", "bacitracin", "glycopeptide", "multidrug", "unclassified")))
+  
+  drug_color <- c("#bfd3e6","#8c96c6","#8c6bb1","#810f7c","#fcc5c0","#dd3497","#dbf10bff","#78c679","#006837","#9ebcda","#EBECF0","#41ab5d","#EBECF0","#006837" ) 
+  names(drug_color) <- c("tetracycline", "rifamycin", "quinolone", "aminoglycoside", "polymyxin", "fosmidomycin", "MLS", "bacitracin", "glycopeptide", "multidrug", "unclassified")
+
+  
+  # proportion 
+  proportion_data <- relabun_by_DrugClass %>%
+    group_by(sampleID) %>% 
+    mutate(proportion_rel_abun = (total_rel_abun / sum(total_rel_abun))*100)
+
+  
+  ARG_proportion <- ggplot(proportion_data, aes(x = sampleID, y = proportion_rel_abun, fill = drug_class)) +
+    geom_col(position = 'stack', width = 0.7) + 
+    scale_y_continuous(expand=c(0, 0))+ #adjust y axis
+    scale_fill_manual(values = drug_color)+
+    labs(y = "Relative Abundance(%)",
+         x = "",
+         fill = "Drug Class") +
+    theme_minimal() +
+    theme(panel.grid = element_blank(), 
+          panel.background = element_rect(color = 'grey'), 
+          strip.text = element_text(size = 12)) + #background
+    theme(axis.text = element_text(size = 12), 
+          axis.title = element_text(size = 12), 
+          legend.text = element_text(size = 12),
+          legend.title = element_text(family = "Arial", size = 12), 
+          legend.position = 'right')
+  
+  ggsave(file="ARG_abundance.svg", plot=ARG_proportion, height = 5, width =6 )  
+  
+  
+  abundance_table <- proportion_data %>%
+    select(sampleID, drug_class, proportion_rel_abun) %>%
+    pivot_wider(names_from = drug_class, values_from = proportion_rel_abun, values_fill = 0)
+  
+  write.csv(abundance_table, "ARG_relative.csv", row.names = FALSE)
+}
+
+
+  # Load the data
+  ARG_new <- read.csv("data/ARG_analysis/ARG_total.csv")
+  
+  # Colors for each genus
+  bacteria_color <- c("#DEDCD9","#fff2cc","#bcd888","#6488dd","#6495dd","#b8ffe0","#63b6b0","#7fb8f0","#4e96df","#5e99cf","#406f9c","#7E85Ac","#7E79AB")
+  names(bacteria_color) <- c("Unassigned","Bacillus","Acinetobacter","Enterobacter","Enterobacteriaceae","Yersiniaceae","Rahnella","Erwinia","Pantoea","Erwiniaceae","Rosenbergiella","Bruguierivoracaceae","Sodalis")
+  
+  # Summarize relative abundance by genus and sample
+  relabun_by_Bacteria <- ARG_new %>%
+    group_by(sampleID, bacteria_genus) %>%
+    summarise(total_rel_abun = sum(rel_abun, na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(bacteria_genus = factor(bacteria_genus, levels = names(bacteria_color)))
+  
+  # ARG counts per site
+  arg_num <- data.frame(
+    Site = c("S1", "S2", "S3", "S4", "S6", "S7", "S9", "S10"),
+    ARG_num = c(10, 9, 5, 7, 46, 13, 21, 69)
+  )
+  
+  # Ensure `sampleID` has correct factor levels to maintain specified order
+  relabun_by_Bacteria$sampleID <- factor(relabun_by_Bacteria$sampleID, levels = c("S1", "S2", "S3", "S4", "S6", "S7", "S9", "S10"))
+  
+  # Ensure `Site` in `arg_num` has correct factor levels
+  arg_num$Site <- factor(arg_num$Site, levels = c("S1", "S2", "S3", "S4", "S6", "S7", "S9", "S10"))
+  
+  # Merge data frames to ensure consistent x-axis levels (likely redundant given above factor settings)
+  merged_data <- full_join(relabun_by_Bacteria, arg_num, by = c("sampleID" = "Site"))
+  
+  # Plot
+  ARG_site_count <- ggplot() +
+    # Stacked bar plot for `relabun_by_Bacteria`
+    geom_bar(data = relabun_by_Bacteria, 
+             aes(x = sampleID, y = total_rel_abun, fill = bacteria_genus), 
+             stat = "identity", position = "stack") +
+    scale_fill_manual(values = bacteria_color) +
+    # Line plot for `arg_num` using a second y-axis
+    new_scale_fill() +  # Resets the fill scale for the line plot
+    
+    geom_line(data = arg_num, 
+              aes(x = Site, y = ARG_num * 0.0005, group = 1),  # Adjusted multiplier for plotting
+              color = "#E9967A", size = 1) +
+    geom_point(data = arg_num, 
+               aes(x = Site, y = ARG_num * 0.0005),  # Adjusted multiplier for plotting
+               color = "#E9967A", size = 2) +
+    
+    # Axes labels and scales
+    scale_y_continuous(name = "Relative Abundance by Bacteria", 
+                       sec.axis = sec_axis(~ . * 2000, name = "ARG Count")) +  # Adjusted inverse multiplier for correct scaling
+    labs(x = "Site", title = "Bacterial Relative Abundance and ARG Counts per Site") +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      panel.background = element_rect(color = 'grey'),
+      strip.text = element_text(size = 12),
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 12),
+      legend.text = element_text(size = 12, face = "italic"),
+      legend.title = element_text(family = "Arial", size = 12),
+      legend.position = "right",
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+  
+  ggsave(file="ARG_site_count.svg", plot=ARG_site_count, height = 6, width =6 )  
+  
+  
+  # proportion 
+  proportion_data <- relabun_by_Bacteria %>%
+    group_by(sampleID) %>% 
+    mutate(proportion_rel_abun = total_rel_abun / sum(total_rel_abun))
+p <-   ggplot(proportion_data, aes(x = sampleID, y = proportion_rel_abun, 
+                              fill = factor(bacteria_genus, levels = c("Unassigned","Bacillus","Acinetobacter","Enterobacter","Enterobacteriaceae","Yersiniaceae","Rahnella","Erwinia","Pantoea","Erwiniaceae","Rosenbergiella","Bruguierivoracaceae","Sodalis")
+                                            )
+  )) +
+    geom_bar(stat = "identity") +
+    labs(title = "Distribution of Host Bacteria by SampleID",
+         x = "SampleID",
+         y = "genus",
+         fill = "genus") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 0.5)) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1)) + 
+    scale_fill_manual(values = bacteria_color)
+  
+  
+  
+  proportion_data_taxa <- relabun_by_Bacteria %>%
+    group_by(sampleID) %>% 
+    mutate(rel_abun = total_rel_abun * 100)
+  
+  ARG_taxa <- ggplot(proportion_data_taxa, aes(x = rel_abun, y = bacteria_genus)) +
+    geom_boxplot(aes(fill = bacteria_genus, color = bacteria_genus), width = 0.5, outlier.shape = NA, alpha = 0.7) +  # Boxplot with reduced width
+    geom_jitter(aes(color = bacteria_genus), width = 0.2, size = 2, alpha = 0.6) +  # Add points for individual data
+    scale_color_manual(values = bacteria_color) +  # Use the custom color palette
+    scale_fill_manual(values = bacteria_color) +
+    scale_y_discrete(limits = rev) +  # Reverse the order of the y-axis
+    theme_minimal() +
+    labs(
+      title = "ARG % in each taxon",
+      y = "Bacteria",
+      x = "Relative Abundance"
+    ) +
+    theme(panel.grid = element_blank(), 
+          panel.background = element_rect(color = 'grey'), 
+          strip.text = element_text(size = 12)) + #background
+    theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+          axis.text.y = element_text(angle = 0, hjust = 0.5, face = "italic"),
+          axis.text = element_text(size = 12), 
+          axis.title = element_text(size = 12), 
+          legend.text = element_text(size = 12, face = "italic"),
+          legend.title = element_text(family = "Arial", size = 12), 
+          legend.position = 'right')
+  
+  
+  ggsave(file="ARG_taxa.svg", plot=ARG_taxa, height = 5, width =6 )  
+  
+  
+
+
+```
+
+## Network Analysis
+
+```{code}
+# library
+library(devtools)
+install_github("zdk123/SpiecEasi")
+library(SpiecEasi)
+library(igraph)
+
+#import data
+## bacteria
+bac_data<-coAsmBacCVGinOsmia_11_8
+bac_data <- as.data.frame(bac_data)
+rownames(bac_data) <- bac_data[[1]]
+bac_data <- bac_data[,-1]  
+bac_filt_data_0.01 <- bac_data[rowSums(bac_data > 0.01) > 0, ]
+bac_f_data_0.01 <- t(bac_filt_data_0.01)
+## virus
+vir_data <- CoVirusOsmiaContig_11_10
+vir_data <- as.data.frame(vir_data)
+rownames(vir_data) <- vir_data[[1]]
+vir_data <- vir_data[,-1]  
+vir_filt_data_0.01 <- vir_data[rowSums(vir_data > 0.01) > 0, ]
+vir_f_data_0.01 <- t(vir_filt_data_0.01)
+
+# spiec-easi
+bac_f_data_0.01 <- as.matrix(bac_f_data_0.01)
+vir_t_data <- as.matrix(vir_t_data)
+spiec.bac_0.01.out=spiec.easi(bac_f_data_0.01, 
+                              method="glasso",
+                              icov.select.params=list(rep.num=50),
+                              lambda.min.ratio=0.8,
+                              nlambda=500,
+                              pulsar.params=list(thresh=0.1))
+spiec.bacvir_0.01.out=spiec.easi(list(bac_f_data_0.01,vir_f_data_0.01), 
+                                 method="glasso",
+                                 icov.select.params=list(rep.num=100),
+                                 lambda.min.ratio=0.8,
+                                 nlambda=500,
+                                 pulsar.params=list(thresh=0.1))
+
+library(igraph)
+ig.bac_0.01     <- adj2igraph(getRefit(spiec.bac_0.01.out))
+adjacency_unweight_0.01 <- data.frame(as.matrix(spiec.bac_0.01.out$refit$stars))
+library(Matrix)
+bac_0.01_cor  <- cov2cor(getOptCov(spiec.bac_0.01.out))
+elist.bac_0.01     <- summary(triu(bac_0.01_cor*getRefit(spiec.bac_0.01.out), k=1))
+hist(elist.bac_0.01[,3],  col='red')
+#merge weights into network
+elist.bac_0.01 <- data.frame(elist.bac_0.01)
+names(elist.bac_0.01) <- c('source', 'target', 'weight')
+elist.bac_0.01 <- elist.bac_0.01[order(elist.bac_0.01$source, elist.bac_0.01$target), ]
+E(ig.bac_0.01)$weight <- elist.bac_0.01$weight
+adjacency_weight_bac_0.01 <- as.matrix(as_adjacency_matrix(ig.bac_0.01, attr = 'weight'))
+rownames(adjacency_weight_bac_0.01) <- rownames(bac_filt_data_0.01)
+colnames(adjacency_weight_bac_0.01) <- rownames(bac_filt_data_0.01)
+edge.bac_0.01 <- data.frame(as_edgelist(ig.bac_0.01))
+edge.bac_0.01 <- data.frame(source = edge.bac_0.01[[1]], 
+                            target = edge.bac_0.01[[2]], 
+                            weight = E(ig.bac_0.01)$weight)
+dd.bac_0.01     <- degree_distribution(ig.bac_0.01)
+points(0:(length(dd.gl)-1), dd.gl, type='b')
+
+ig.bacvir_0.01     <- adj2igraph(getRefit(spiec.bacvir_0.01.out))
+summary(spiec.bacvir_0.01.out)
+adjacency_unweight_bacvir <- data.frame(as.matrix(spiec.bacvir_0.01.out$refit$stars))
+library(Matrix)
+bacvir_0.01cor  <- cov2cor(getOptCov(spiec.bacvir_0.01.out))
+elist.bacvir_0.01     <- summary(triu(bacvir_0.01cor*getRefit(spiec.bacvir_0.01.out), k=1))
+library(ggplot2)
+hist(elist.bacvir_0.01[,3])
+elist.bacvir_0.01 <- data.frame(elist.bacvir_0.01)
+names(elist.bacvir_0.01) <- c('source', 'target', 'weight')
+elist.bacvir_0.01 <- elist.bacvir_0.01[order(elist.bacvir_0.01$source, elist.bacvir_0.01$target), ]
+E(ig.bacvir_0.01)$weight <- elist.bacvir_0.01$weight
+adjacency_weight_bacvir_0.01 <- as.matrix(as_adjacency_matrix(ig.bacvir_0.01, attr = 'weight'))
+combined_rownames <- c(rownames(bac_filt_data_0.01), rownames(vir_data))
+rownames(adjacency_weight_bacvir_0.01) <- rownames(combined_rownames)
+colnames(adjacency_weight_bacvir_0.01) <- rownames(combined_rownames)
+edge.bacvir_0.01 <- data.frame(as_edgelist(ig.bacvir_0.01))
+edge.bacvir_0.01 <- data.frame(source = edge.bacvir_0.01[[1]], 
+                               target = edge.bacvir_0.01[[2]], 
+                               weight = E(ig.bacvir_0.01)$weight)
+dd.bacvir_0.01 <- degree_distribution(ig.bacvir_0.01)
+
+# visualization
+## bacteria
+library(colorspace)
+
+E.color.bac_0.01 <- ifelse(se.bac_0.01.weighted_weight > 0, "lightgrey", 
+                           ifelse(se.bac_0.01.weighted_weight < 0, "lightgrey", "lightgrey"))
+E(se.bac_0.01.weighted)$color <- as.character(E.color.bac_0.01)
+V(se.bac_0.01.weighted)$frame.color <- rgb(0.5, 0.5, 0.5, 0.5)  # 半透明灰色 (50% 灰 + 50% 透明)
+
+vsize    <- rowMeans(clr(bac_f_data_0.01,1))*0.9+5
+
+label_color <- "black"
+label <- rownames(bac_filt_data_0.01)
+label_font <- 3
+label_tex <- rowMeans(clr(bac_f_data_0.01,1))*0.04+0.4
+#Modularity
+fc = cluster_fast_greedy(ig.bac_0.01)# cluster_walktrap cluster_edge_betweenness, cluster_fast_greedy, cluster_spinglass
+modularity = modularity(se.bac_0.01.weighted,membership(fc))
+library(RColorBrewer)
+comps = membership(fc)
+module_sizes <- table(comps)  
+valid_modules <- names(module_sizes[module_sizes > 1])  
+
+num_colors <- length(valid_modules) 
+colbar <- qualitative_hcl(num_colors, palette = "Set3") 
+
+module_colors <- adjustcolor(colbar, alpha.f = 0.2)
+
+node_colors <- module_colors[match(comps, valid_modules)]
+
+node_colors[is.na(node_colors)] <- "#D3D3D3"
+
+V(se.bac_0.01.weighted)$color <- node_colors
+
+for (i in seq_along(valid_modules)) {
+  module_id <- as.numeric(valid_modules[i]) # 模块ID
+  V(se.bac_0.01.weighted)$color[comps == module_id] <- colbar[i]
+}
+#svg("bacteria_t=0.05_igraph.svg", width = 10, height = 10) 
+
+par(family = "Arial")
+plot(se.bac_0.01.weighted,
+     layout = am.coord_gl_scaled, 
+     main = "bacteria",
+     edge.width = 0.4, 
+     vertex.label = label,
+     vertex.label.color = label_color, 
+     vertex.size = vsize,
+     #edge.lty = 1,
+     vertex.frame.color = rgb(0.5, 0.5, 0.5, 0),
+     edge.color = "grey",
+     edge.curved = FALSE,
+     vertex.label.font = label_font,
+     vertex.label.cex = 0.3,
+     vertex.label.family = "Arial")
+#dev.off
+
+## bacteria-virus
+bvNode <- bvNode_0_01_t_0_1
+
+
+par(family = "Arial")
+colnames(adjacency_weight_bacvir_0.01) <- rownames(adjacency_weight_bacvir_0.01)
+se.bacvir_0.01.weighted <- graph_from_adjacency_matrix(adjacency_weight_bacvir_0.01,
+                                                       mode="undirected",
+                                                       weighted=TRUE,
+                                                       diag=FALSE)
+V(se.bacvir_0.01.weighted)$name <- rownames(adjacency_weight_bacvir_0.01)
+se.bacvir_0.01.weighted_weight <- E(se.bacvir_0.01.weighted)$weight
+
+V(se.bacvir_0.01.weighted)$polygon <- bvNode$polygon[match(V(se.bacvir_0.01.weighted)$name, bvNode$id)]
+V(se.bacvir_0.01.weighted)$lifestyle <- bvNode$lifestyle[match(V(se.bacvir_0.01.weighted)$name, bvNode$id)]
+E(se.bacvir_0.01.weighted)$weight = NA
+am.coord <- layout.kamada.kawai(ig.bacvir_0.01, weights=NA)
+sum(se.bacvir_0.01.weighted_weight>0)
+sum(se.bacvir_0.01.weighted_weight<0)
+
+E.color = se.bacvir_0.01.weighted_weight
+
+E.color = ifelse(E.color>0, "grey",
+                 ifelse(E.color<0, "black","grey"))
+E.lty_1 = se.bacvir_0.01.weighted_weight
+E.lty = ifelse(E.lty_1>0, 1,
+               ifelse(E.lty_1<0, 3,1))
+E(se.bacvir_0.01.weighted)$lty = as.character(E.lty)
+E(se.bacvir_0.01.weighted)$color = as.character(E.color)
+E(se.bacvir_0.01.weighted)$width = abs(se.bacvir_0.01.weighted_weight)*5
+
+num_otus_bac <- ncol(bac_f_data_0.01)
+num_otus_vir <- ncol(vir_f_data_0.01)
+
+
+vsize <- rowMeans(clr(cbind(bac_f_data_0.01,vir_f_data_0.01),1))*0.9+5
+label <- c(rownames(bac_filt_data_0.01), rep(NA, num_otus_vir)) 
+
+library(RColorBrewer)
+#Modularity
+fc = cluster_fast_greedy(ig.bacvir_0.01,weights = NA)
+modularity = modularity(ig.bacvir_0.01,membership(fc))
+library(colorspace)
+
+comps <- membership(fc)
+
+library(colorspace)
+
+module_sizes <- table(comps)  
+valid_modules <- names(module_sizes[module_sizes > 1]) 
+
+num_colors <- length(valid_modules)  
+colbar <- qualitative_hcl(num_colors, palette = "Set3")  
+
+module_colors <- adjustcolor(colbar, alpha.f = 0.2)
+
+node_colors <- module_colors[match(comps, valid_modules)]  
+node_colors[is.na(node_colors)] <- "#D3D3D3"  
+
+V(se.bacvir_0.01.weighted)$color <- node_colors
+for (i in seq_along(valid_modules)) {
+  module_id <- as.numeric(valid_modules[i])
+  V(se.bacvir_0.01.weighted)$color[comps == module_id] <- colbar[i]
+}
+# triangle vertex shape
+mytriangle <- function(coords, v = NULL, params) {
+  vertex.color <- params("vertex", "color")
+  if (length(vertex.color) != 1 && !is.null(v)) {
+    vertex.color <- vertex.color[v]
+  }
+  vertex.size <- 1 / 200 * params("vertex", "size")
+  if (length(vertex.size) != 1 && !is.null(v)) {
+    vertex.size <- vertex.size[v]
+  }
+  
+  symbols(
+    x = coords[, 1], y = coords[, 2], bg = vertex.color,
+    stars = cbind(vertex.size, vertex.size, vertex.size),
+    add = TRUE, inches = FALSE
+  )
+}
+# clips as a circle
+add_shape("triangle",
+          clip = shapes("circle")$clip,
+          plot = mytriangle
+)
+V(se.bacvir_0.01.weighted)$frame.color <- rgb(0.5, 0.5, 0.5, 0.5)  
+library(igraph)
+
+mytriangle <- function(coords, v = NULL, params) {
+  vertex.color <- params("vertex", "color")
+  if (length(vertex.color) != 1 && !is.null(v)) {
+    vertex.color <- vertex.color[v]
+  }
+  
+  vertex.size <- 1 / 200 * params("vertex", "size")
+  if (length(vertex.size) != 1 && !is.null(v)) {
+    vertex.size <- vertex.size[v]
+  }
+  vertex.label <- params("vertex", "label")
+  vertex.label.cex <- params("vertex", "label.cex")
+  vertex.label.color <- params("vertex", "label.color")
+  vertex.label.family <- params("vertex", "label.family")
+
+  for (i in seq_len(nrow(coords))) {
+    x <- coords[i, 1]
+    y <- coords[i, 2]
+    size <- vertex.size[i]
+    
+    triangle_x <- c(x, x - size, x + size)
+    triangle_y <- c(y + size, y - size, y - size)
+    
+    polygon(
+      triangle_x, triangle_y, 
+      col = vertex.color[i],
+      border = NA             
+    )
+  }
+}
+
+# add triangle shape
+add_shape("triangle",
+          clip = shapes("circle")$clip,
+          plot = mytriangle
+)
+label_font <- c(rep(3, 84), rep(1, length(label) - 84))
+par(family = "Arial")      
+
+map_polygon_to_shape <- function(polygon) {
+  ifelse(polygon == 1, "circle",
+         ifelse(polygon == 3, "triangle",
+                ifelse(polygon == 4, "square", "circle")))  
+}
+label_tex <- c(rowMeans(clr(bac_f_data_0.01,1)),rowMeans(clr(vir_f_data_0.01,1)))*0.02+0.3
+dtype <- map_polygon_to_shape(V(se.bacvir_0.01.weighted)$polygon)
+plot(se.bacvir_0.01.weighted,
+     layout = am.coord, 
+     main = "bacteria-virus",
+     vertex.label = label,
+     vertex.label.cex = 0.3, 
+     vertex.size = vsize, 
+     edge.lty = E.lty, 
+     edge.width = 0.4,
+     edge.color ="grey",
+     vertex.shape = dtype,
+     vertex.label.color = "black",
+     vertex.frame.color = rgb(0.5, 0.5, 0.5, 0),
+     edge.curved = FALSE,
+     vertex.label.font = label_font, 
+     vertex.label.family = "Arial")
+legend("topright",                
+       legend = c("Bacteria", "phage", "virus"),
+       pch = c(21, 24, 22),         
+       pt.cex = 3,                
+       bty = "n",               
+       title = "Node Type")  
+## subgraph
+neighbors_52_46 <- unlist(ego(se.bacvir_0.01.weighted, order = 1, nodes = c("52", "46")))
+
+subgraph_52_46 <- induced_subgraph(se.bacvir_0.01.weighted, vids = neighbors_52_46)
+
+V(subgraph_52_46)$label <- bvNode$Label[match(V(subgraph_52_46)$name, bvNode$id)]
+V(subgraph_52_46)$vsize <- vsize[match(V(subgraph_52_46)$label, names(vsize))]
+V(subgraph_52_46)$polygon <- bvNode$polygon[match(V(subgraph_52_46)$name, bvNode$id)]
+V(subgraph_52_46)$color <- V(se.bacvir_0.01.weighted)$color[match(V(subgraph_52_46)$name, V(se.bacvir_0.01.weighted)$name)]
+
+edge_list <- ends(subgraph_52_46, E(subgraph_52_46))
+
+polygon_start <- V(subgraph_52_46)$polygon[match(edge_list[, 1], V(subgraph_52_46)$name)]
+polygon_end <- V(subgraph_52_46)$polygon[match(edge_list[, 2], V(subgraph_52_46)$name)]
+
+edges_to_keep <- which(
+  polygon_start == 1 | polygon_end == 1
+)
+
+print(E(filtered_subgraph)$pn)
+
+amcoord_3 = layout.kamada.kawai(filtered_subgraph)
+
+E(filtered_subgraph)$new_pn <- new_pn
+
+plot(
+  filtered_subgraph,
+  layout = amcoord_3,
+  vertex.label = V(filtered_subgraph)$label,
+  #edge.color = ifelse(E(filtered_subgraph)$pn == "p", "grey", "black"), 
+  edge.color = "grey",
+  edge.lty = ifelse(E(filtered_subgraph)$new_pn == "p", 1, 3), 
+  vertex.size = V(filtered_subgraph)$vsize*3,
+  vertex.shape = ifelse(V(filtered_subgraph)$polygon == 4, "square",
+                        ifelse(V(filtered_subgraph)$polygon == 3, "triangle", "circle")),
+  edge.width = 0.8,  
+  vertex.frame.color = rgb(0,0,0,0),
+  vertex.label.cex = 0.6,
+  vertex.label.font = c(rep(3, 6), rep(1, 18)),
+  vertex.label.color = ifelse(!is.na(V(filtered_subgraph)$lifestyle) & V(filtered_subgraph)$lifestyle == "virulent", 
+                              "black", 
+                              "#7A7A7A"),
+  ,
+  vertex.color = V(filtered_subgraph)$color, 
+  vertex.label.family = "Arial"
+)
+legend("topright",              
+       legend = c("Bacteria", "phage", "virus"),
+       pch = c(21, 24, 22),         
+       pt.cex = 1,               
+       bty = "n",                
+       title = "Node Type")  
+
+# stability
+## nc
+nc <- function(adj_matrix) {
+  adj_matrix <- as.matrix(adj_matrix)
+  adj_matrix[abs(adj_matrix) != 0] <- 1
+  
+  #got eigen lambda
+  lambda <- eigen(adj_matrix, only.values = TRUE)$values
+  lambda <- sort(lambda, decreasing = TRUE)
+  
+  #calculate average eigen lambda
+  lambda_sum <- 0
+  N = length(lambda)
+  for (i in 1:N) lambda_sum = lambda_sum + exp(lambda[i])
+  lambda_average <- log(lambda_sum/N, base = exp(1))
+  lambda_average
+}
+## random graph generation
+library(igraph)
+
+original_nodes <- vcount(ig.bac_0.01)
+original_edges <- ecount(ig.bac_0.01)
+
+new_nodes <- vcount(ig.bacvir_0.01) - original_nodes
+new_edges <- ecount(ig.bacvir_0.01) - original_edges
+
+ig.random_0.01 <- ig.bac_0.01
+
+if (new_nodes > 0) {
+  ig.random_0.01 <- add_vertices(ig.random_0.01, new_nodes)
+}
+existing_edges <- as_data_frame(ig.random_0.01, what = "edges")
+
+
+possible_edges <- t(combn(V(ig.random_0.01), 2))
+possible_edges <- possible_edges[!apply(possible_edges, 1, function(x) {
+  any(all(x %in% existing_edges))
+}), ]
+
+set.seed(42)  
+new_edges_to_add <- possible_edges[sample(1:nrow(possible_edges), new_edges), ]
+
+ig.random_0.01 <- add_edges(ig.random_0.01, as.vector(t(new_edges_to_add)))
+
+plot(ig.random_0.1,
+     vertex.size = 5,            
+     vertex.label = NA,         
+     vertex.color = "skyblue",   
+     edge.color = "grey",        
+     edge.width = 0.5,           
+     main = "Randomized Network ig.random_0.1")  
+## attack robustness
+## betweeness
+V(ig.bacvir_0.01)$label <- c(rownames(bac_filt_data_0.01),rownames(vir_filt_data_0.01))
+V(ig.bac_0.01)$label <- rownames(bac_filt_data_0.01)
+
+V(ig.random)$label <- c(rownames(bac_filt_data_0.01), rep(NA, nrow(vir_filt_data_0.01)))
+
+total_nodes_gl <- vcount(ig.bac_0.01)
+total_nodes_bacvir <- vcount(ig.bacvir_0.01)
+total_nodes_random <- vcount(ig.random)
+
+max_remove_nodes_gl <- ceiling(0.8 * total_nodes_gl)
+max_remove_nodes_bacvir <- ceiling(0.8 * total_nodes_bacvir)
+max_remove_nodes_random <- ceiling(0.8 * total_nodes_random)
+
+node_order_betweenness_gl <- order(betweenness(ig.bac_0.01, directed = FALSE,weight = NA), decreasing = TRUE)
+node_order_betweenness_bacvir <- order(betweenness(ig.bacvir_0.01, directed = FALSE, weight = NA), decreasing = TRUE)
+node_order_betweenness_random <- order(betweenness(ig.random, directed = FALSE, weight = NA), decreasing = TRUE)
+
+deleted_nodes_gl <- data.frame(node = character(), natural_connectivity = numeric())
+deleted_nodes_bacvir <- data.frame(node = character(), natural_connectivity = numeric())
+deleted_nodes_random <- data.frame(node = character(), natural_connectivity = numeric())
+
+natural_b_connectivity_vals_gl <- c(nc(as_adjacency_matrix(ig.bac_0.01, sparse = FALSE)))
+natural_b_connectivity_vals_bacvir <- c(nc(as_adjacency_matrix(ig.bacvir_0.01, sparse = FALSE)))
+natural_b_connectivity_vals_random <- c(nc(as_adjacency_matrix(ig.random, sparse = FALSE)))
+
+# attack 3 network based on betweeness 
+deleted_nodes_gl <- data.frame(node = "0", natural_connectivity = nc(as_adjacency_matrix(ig.bac_0.01, sparse = FALSE)))
+for (i in 1:min(max_remove_nodes_gl, length(node_order_betweenness_gl))) {
+  ig.gl_betweenness <- delete_vertices(ig.bac_0.1, node_order_betweenness_gl[1:i])
+  adj_matrix_betweenness_gl <- as_adjacency_matrix(ig.gl_betweenness, sparse = FALSE)
+  # got delete node name
+  current_node_name <- V(ig.bac_0.01)$label[node_order_betweenness_gl[i]]
+  # calculate nc
+  current_connectivity <- nc(adj_matrix_betweenness_gl)
+  # save node name and nc
+  deleted_nodes_gl <- rbind(deleted_nodes_gl, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
+}
+print(deleted_nodes_gl)
+# ig.bacvir
+deleted_nodes_bacvir <- data.frame(node = "0", natural_connectivity = nc(as_adjacency_matrix(ig.bacvir_0.01, sparse = FALSE)))
+for (i in 1:min(max_remove_nodes_bacvir, length(node_order_betweenness_bacvir))) {
+  ig.bacvir_betweenness <- delete_vertices(ig.bacvir_0.01, node_order_betweenness_bacvir[1:i])
+  adj_matrix_betweenness_bacvir <- as_adjacency_matrix(ig.bacvir_betweenness, sparse = FALSE)
+  current_node_name <- V(ig.bacvir_0.01)$label[node_order_betweenness_bacvir[i]]
+  current_connectivity <- nc(adj_matrix_betweenness_bacvir)
+  deleted_nodes_bacvir <- rbind(deleted_nodes_bacvir, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
+}
+print(deleted_nodes_bacvir)
+#random
+# ig.random
+deleted_nodes_random <- data.frame(node = "0", natural_connectivity = nc(as_adjacency_matrix(ig.random_0.1, sparse = FALSE)))
+for (i in 1:min(max_remove_nodes_random, length(node_order_betweenness_random))) {
+  ig.random_betweenness <- delete_vertices(ig.random_0.01, node_order_betweenness_random[1:i])
+  adj_matrix_betweenness_random <- as_adjacency_matrix(ig.random_betweenness, sparse = FALSE)
+  current_node_name <- if (node_order_betweenness_random[i] <= length(V(ig.random_0.01))) {
+    V(ig.random)$label[node_order_betweenness_random[i]]
+  } else {
+    NA
+  }
+  current_connectivity <- nc(adj_matrix_betweenness_random)
+  deleted_nodes_random <- rbind(deleted_nodes_random, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
+}
+print(deleted_nodes_random)
+# ig.bac 
+proportion_gl <- seq(0, min(max_remove_nodes_gl, length(deleted_nodes_gl$natural_connectivity) - 1)) / total_nodes_gl
+data_gl <- data.frame(
+  removed_proportion = proportion_gl,
+  natural_connectivity_b = deleted_nodes_gl$natural_connectivity,
+  network = "bacteria network"
+)
+
+# ig.bacvir 
+proportion_bacvir <- seq(0, min(max_remove_nodes_bacvir, length(deleted_nodes_bacvir$natural_connectivity) - 1)) / total_nodes_bacvir
+data_bacvir <- data.frame(
+  removed_proportion = proportion_bacvir,
+  natural_connectivity_b = deleted_nodes_bacvir$natural_connectivity,
+  network = "bacteria-virus network"
+)
+
+# ig.random
+proportion_random <- seq(0, min(max_remove_nodes_random, length(deleted_nodes_random$natural_connectivity) - 1)) / total_nodes_random
+data_random <- data.frame(
+  removed_proportion = proportion_random,
+  natural_connectivity_b = deleted_nodes_random$natural_connectivity,
+  network = "random network"
+)
+#svg("betweeness.svg", width = 10, height = 10)
+dat_b <- rbind(data_gl, data_bacvir, data_random)
+b <- ggplot(dat_b, aes(x = removed_proportion, y = natural_connectivity_b, color = network)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +  
+  labs(title = "Natural Connectivity vs. Proportion of Nodes Removed (Betweenness)",
+       x = "Proportion of Removed Nodes",
+       y = "Natural Connectivity") +
+  theme_minimal()+
+  theme(plot.title = element_text(size = 10))
+print(b)
+library(dplyr)
+areas <- dat_b %>%
+  group_by(network) %>%
+  do({
+    loess_fit <- loess(natural_connectivity_b ~ removed_proportion, data = .)
+    x_vals <- seq(min(.$removed_proportion), max(.$removed_proportion), length.out = 200)
+    y_vals <- predict(loess_fit, newdata = data.frame(removed_proportion = x_vals))
+    area <- sum(diff(x_vals) * (head(y_vals, -1) + tail(y_vals, -1)) / 2)
+    data.frame(network = unique(.$network), area = area)
+  })
+print(areas)
+#dev.off
+
+###degree
+# attack network based on degree
+deleted_nodes_gl <- data.frame(node = "0", natural_connectivity = nc(as_adjacency_matrix(ig.bac_0.01, sparse = FALSE)))
+for (i in 1:min(max_remove_nodes_gl, length(node_order_degree_gl))) {
+  ig.gl_degree <- delete_vertices(ig.bac_0.01, node_order_degree_gl[1:i])
+  adj_matrix_degree_gl <- as_adjacency_matrix(ig.gl_degree, sparse = FALSE)
+  # got deleted node name
+  current_node_name <- V(ig.bac_0.01)$label[node_order_degree_gl[i]]
+  # calculate nc
+  current_connectivity <- nc(adj_matrix_degree_gl)
+  # save node name and nc
+  deleted_nodes_gl <- rbind(deleted_nodes_gl, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
+}
+print(deleted_nodes_gl)
+# ig.bacvir
+deleted_nodes_bacvir <- data.frame(node = "0", natural_connectivity = nc(as_adjacency_matrix(ig.bacvir_0.01, sparse = FALSE)))
+for (i in 1:min(max_remove_nodes_bacvir, length(node_order_degree_bacvir))) {
+  ig.bacvir_degree <- delete_vertices(ig.bacvir_0.01, node_order_degree_bacvir[1:i])
+  adj_matrix_degree_bacvir <- as_adjacency_matrix(ig.bacvir_degree, sparse = FALSE)
+  current_node_name <- V(ig.bacvir_0.01)$label[node_order_degree_bacvir[i]]
+  # calculate nc 
+  current_connectivity <- nc(adj_matrix_degree_bacvir)
+  # save node name and nc
+  deleted_nodes_bacvir <- rbind(deleted_nodes_bacvir, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
+}
+print(deleted_nodes_bacvir)
+#random
+# ig.random
+deleted_nodes_random <- data.frame(node = "0", natural_connectivity = nc(as_adjacency_matrix(ig.random_0.01, sparse = FALSE)))
+for (i in 1:min(max_remove_nodes_random, length(node_order_degree_random))) {
+  ig.random_degree <- delete_vertices(ig.random_0.01, node_order_degree_random[1:i])
+  adj_matrix_degree_random <- as_adjacency_matrix(ig.random_degree, sparse = FALSE)
+  current_node_name <- if (node_order_degree_random[i] <= length(V(ig.random_0.01))) {
+    V(ig.random_0.01)$label[node_order_degree_random[i]]
+  } else {
+    NA
+  }
+  
+  # calculate nc
+  current_connectivity <- nc(adj_matrix_degree_random)
+  # save node name
+  deleted_nodes_random <- rbind(deleted_nodes_random, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
+}
+print(deleted_nodes_random)
+
+proportion_gl <- seq(0, min(max_remove_nodes_gl, length(deleted_nodes_gl$natural_connectivity) - 1)) / total_nodes_gl
+data_gl <- data.frame(
+  removed_proportion = proportion_gl,
+  natural_connectivity_d = deleted_nodes_gl$natural_connectivity,
+  network = "bacteria network"
+)
+
+# ig.bacvir
+proportion_bacvir <- seq(0, min(max_remove_nodes_bacvir, length(deleted_nodes_bacvir$natural_connectivity) - 1)) / total_nodes_bacvir
+data_bacvir <- data.frame(
+  removed_proportion = proportion_bacvir,
+  natural_connectivity_d = deleted_nodes_bacvir$natural_connectivity,
+  network = "bacteria-virus network"
+)
+
+# ig.random
+proportion_random <- seq(0, min(max_remove_nodes_random, length(deleted_nodes_random$natural_connectivity) - 1)) / total_nodes_random
+data_random <- data.frame(
+  removed_proportion = proportion_random,
+  natural_connectivity_d = deleted_nodes_random$natural_connectivity,
+  network = "random network"
+)
+#svg("degree.svg", width = 10, height = 10)
+dat_d <- rbind(data_gl, data_bacvir, data_random)
+d <- ggplot(dat_d, aes(x = removed_proportion, y = natural_connectivity_d, color = network)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +  # 使用局部加权回归平滑
+  labs(title = "Natural Connectivity vs. Proportion of Nodes Removed (Degree)",
+       x = "Proportion of Removed Nodes",
+       y = "Natural Connectivity") +
+  
+  theme_minimal()+
+  theme(plot.title = element_text(size = 10))
+print(d)
+library(dplyr)
+areas <- dat_d %>%
+  group_by(network) %>%
+  do({
+    loess_fit <- loess(natural_connectivity_d ~ removed_proportion, data = .)
+    x_vals <- seq(min(.$removed_proportion), max(.$removed_proportion), length.out = 100)
+    y_vals <- predict(loess_fit, newdata = data.frame(removed_proportion = x_vals))
+    area <- sum(diff(x_vals) * (head(y_vals, -1) + tail(y_vals, -1)) / 2)
+    data.frame(network = unique(.$network), area = area)
+  })
+print(areas)
+#dev.off
+
+### random
+adj_matrix_gl <- as_adjacency_matrix(ig.bac_0.01, sparse = FALSE)
+adj_matrix_bacvir <- as_adjacency_matrix(ig.bacvir_0.01, sparse = FALSE)
+adj_matrix_random <- as_adjacency_matrix(ig.random_0.01, sparse = FALSE)
+
+max_remove_nodes_gl <- ceiling(0.8 * total_nodes_gl)
+max_remove_nodes_bacvir <- ceiling(0.8 * total_nodes_bacvir)
+max_remove_nodes_random <- ceiling(0.8 * total_nodes_random)
+
+natural_connectivity_gl <- c(nc(adj_matrix_gl))
+natural_connectivity_bacvir <- c(nc(adj_matrix_bacvir))
+natural_connectivity_random <- c(nc(adj_matrix_random))
+
+for (i in 1:max_remove_nodes_gl) {
+  remove_node <- sample(1:total_nodes_gl, i)
+  adj_matrix2_gl <- adj_matrix_gl[-remove_node, -remove_node]
+  natural_connectivity_remove_gl <- nc(adj_matrix2_gl)
+  natural_connectivity_gl <- c(natural_connectivity_gl, natural_connectivity_remove_gl)
+}
+for (i in 1:max_remove_nodes_bacvir) {
+  remove_node <- sample(1:total_nodes_bacvir, i)
+  adj_matrix2_bacvir <- adj_matrix_bacvir[-remove_node, -remove_node]
+  natural_connectivity_remove_bacvir <- nc(adj_matrix2_bacvir)
+  natural_connectivity_bacvir <- c(natural_connectivity_bacvir, natural_connectivity_remove_bacvir)
+}
+for (i in 1:max_remove_nodes_random) {
+  remove_node <- sample(1:total_nodes_random, i)
+  adj_matrix2_random <- adj_matrix_random[-remove_node, -remove_node]
+  natural_connectivity_remove_random <- nc(adj_matrix2_random)
+  natural_connectivity_random <- c(natural_connectivity_random, natural_connectivity_remove_random)
+}
+
+removed_proportion_gl <- 0:max_remove_nodes_gl / total_nodes_gl
+removed_proportion_bacvir <- 0:max_remove_nodes_bacvir / total_nodes_bacvir
+removed_proportion_random <- 0:max_remove_nodes_random / total_nodes_random
+dat <- data.frame(
+  removed_proportion = c(removed_proportion_gl, removed_proportion_bacvir,removed_proportion_random),
+  natural_connectivity = c(natural_connectivity_gl, natural_connectivity_bacvir, natural_connectivity_random),
+  network = rep(c("bacteria network", "bacteria-virus network","random network"), c(length(natural_connectivity_gl), length(natural_connectivity_bacvir),length(natural_connectivity_random)))
+)
+library(ggplot2)
+#svg("random.svg", width = 10, height = 10)
+r <- ggplot(dat, aes(removed_proportion, natural_connectivity, color = network)) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  theme_minimal(base_family = "Arial") +
+  labs(x = "Removed Proportion", y = "Natural Connectivity", title = "Natural Connectivity with randomly Removed node Proportion") +
+  theme_minimal()+
+  theme(plot.title = element_text(size = 10))
+print(r)
+library(dplyr)
+areas <- dat %>%
+  group_by(network) %>%
+  do({
+    loess_fit <- loess(natural_connectivity ~ removed_proportion, data = .)
+    x_vals <- seq(min(.$removed_proportion), max(.$removed_proportion), length.out = 100)
+    y_vals <- predict(loess_fit, newdata = data.frame(removed_proportion = x_vals))
+    area <- sum(diff(x_vals) * (head(y_vals, -1) + tail(y_vals, -1)) / 2)
+    data.frame(network = unique(.$network), area = area)
+  })
+print(areas)
+#dev.off
+
+```
