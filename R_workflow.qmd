@@ -1299,93 +1299,57 @@ legend("topright",
        title = "Node Type")  
 
 # stability
-## nc
+# define nc 
 nc <- function(adj_matrix) {
+  # 获取 0-1 矩阵，1 表示节点间存在边，0 表示不存在边
   adj_matrix <- as.matrix(adj_matrix)
   adj_matrix[abs(adj_matrix) != 0] <- 1
   
-  #got eigen lambda
+  # 矩阵的特征分解，获取特征值 λ
   lambda <- eigen(adj_matrix, only.values = TRUE)$values
   lambda <- sort(lambda, decreasing = TRUE)
   
-  #calculate average eigen lambda
-  lambda_sum <- 0
-  N = length(lambda)
-  for (i in 1:N) lambda_sum = lambda_sum + exp(lambda[i])
-  lambda_average <- log(lambda_sum/N, base = exp(1))
-  lambda_average
+  # 计算“平均特征根”，获得自然连通度 (NC)
+  lambda_sum <- sum(exp(lambda))
+  N <- length(lambda)
+  nc <- log(lambda_sum / N, base = exp(1))
+  
+  # 构造全连通图的邻接矩阵
+  complete_graph <- matrix(1, nrow = N, ncol = N) # 全为 1
+  diag(complete_graph) <- 0                       # 对角线置 0
+  
+  # 计算全连通图的自然连通度 (NC_max)
+  lambda_complete <- eigen(complete_graph, only.values = TRUE)$values
+  lambda_sum_complete <- sum(exp(lambda_complete))
+  nc_max <- log(lambda_sum_complete / N, base = exp(1))
+  
+  # 正态化自然连通度
+  nc_normalized <- nc / nc_max
+  
+  return(nc_normalized)
 }
-## random graph generation
-library(igraph)
 
-original_nodes <- vcount(ig.bac_0.01)
-original_edges <- ecount(ig.bac_0.01)
-
-new_nodes <- vcount(ig.bacvir_0.01) - original_nodes
-new_edges <- ecount(ig.bacvir_0.01) - original_edges
-
-ig.random_0.01 <- ig.bac_0.01
-
-if (new_nodes > 0) {
-  ig.random_0.01 <- add_vertices(ig.random_0.01, new_nodes)
-}
-existing_edges <- as_data_frame(ig.random_0.01, what = "edges")
-
-
-possible_edges <- t(combn(V(ig.random_0.01), 2))
-possible_edges <- possible_edges[!apply(possible_edges, 1, function(x) {
-  any(all(x %in% existing_edges))
-}), ]
-
-set.seed(42)  
-new_edges_to_add <- possible_edges[sample(1:nrow(possible_edges), new_edges), ]
-
-ig.random_0.01 <- add_edges(ig.random_0.01, as.vector(t(new_edges_to_add)))
-
-plot(ig.random_0.1,
-     vertex.size = 5,            
-     vertex.label = NA,         
-     vertex.color = "skyblue",   
-     edge.color = "grey",        
-     edge.width = 0.5,           
-     main = "Randomized Network ig.random_0.1")  
-## attack robustness
-## betweeness
-V(ig.bacvir_0.01)$label <- c(rownames(bac_filt_data_0.01),rownames(vir_filt_data_0.01))
-V(ig.bac_0.01)$label <- rownames(bac_filt_data_0.01)
-
-V(ig.random)$label <- c(rownames(bac_filt_data_0.01), rep(NA, nrow(vir_filt_data_0.01)))
-
-total_nodes_gl <- vcount(ig.bac_0.01)
+# Betweenness 
 total_nodes_bacvir <- vcount(ig.bacvir_0.01)
-total_nodes_random <- vcount(ig.random)
 
 max_remove_nodes_gl <- ceiling(0.8 * total_nodes_gl)
 max_remove_nodes_bacvir <- ceiling(0.8 * total_nodes_bacvir)
-max_remove_nodes_random <- ceiling(0.8 * total_nodes_random)
 
 node_order_betweenness_gl <- order(betweenness(ig.bac_0.01, directed = FALSE,weight = NA), decreasing = TRUE)
 node_order_betweenness_bacvir <- order(betweenness(ig.bacvir_0.01, directed = FALSE, weight = NA), decreasing = TRUE)
-node_order_betweenness_random <- order(betweenness(ig.random, directed = FALSE, weight = NA), decreasing = TRUE)
 
 deleted_nodes_gl <- data.frame(node = character(), natural_connectivity = numeric())
 deleted_nodes_bacvir <- data.frame(node = character(), natural_connectivity = numeric())
-deleted_nodes_random <- data.frame(node = character(), natural_connectivity = numeric())
 
 natural_b_connectivity_vals_gl <- c(nc(as_adjacency_matrix(ig.bac_0.01, sparse = FALSE)))
 natural_b_connectivity_vals_bacvir <- c(nc(as_adjacency_matrix(ig.bacvir_0.01, sparse = FALSE)))
-natural_b_connectivity_vals_random <- c(nc(as_adjacency_matrix(ig.random, sparse = FALSE)))
 
-# attack 3 network based on betweeness 
 deleted_nodes_gl <- data.frame(node = "0", natural_connectivity = nc(as_adjacency_matrix(ig.bac_0.01, sparse = FALSE)))
 for (i in 1:min(max_remove_nodes_gl, length(node_order_betweenness_gl))) {
   ig.gl_betweenness <- delete_vertices(ig.bac_0.1, node_order_betweenness_gl[1:i])
   adj_matrix_betweenness_gl <- as_adjacency_matrix(ig.gl_betweenness, sparse = FALSE)
-  # got delete node name
   current_node_name <- V(ig.bac_0.01)$label[node_order_betweenness_gl[i]]
-  # calculate nc
   current_connectivity <- nc(adj_matrix_betweenness_gl)
-  # save node name and nc
   deleted_nodes_gl <- rbind(deleted_nodes_gl, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
 }
 print(deleted_nodes_gl)
@@ -1399,79 +1363,24 @@ for (i in 1:min(max_remove_nodes_bacvir, length(node_order_betweenness_bacvir)))
   deleted_nodes_bacvir <- rbind(deleted_nodes_bacvir, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
 }
 print(deleted_nodes_bacvir)
-#random
-# ig.random
-deleted_nodes_random <- data.frame(node = "0", natural_connectivity = nc(as_adjacency_matrix(ig.random_0.1, sparse = FALSE)))
-for (i in 1:min(max_remove_nodes_random, length(node_order_betweenness_random))) {
-  ig.random_betweenness <- delete_vertices(ig.random_0.01, node_order_betweenness_random[1:i])
-  adj_matrix_betweenness_random <- as_adjacency_matrix(ig.random_betweenness, sparse = FALSE)
-  current_node_name <- if (node_order_betweenness_random[i] <= length(V(ig.random_0.01))) {
-    V(ig.random)$label[node_order_betweenness_random[i]]
-  } else {
-    NA
-  }
-  current_connectivity <- nc(adj_matrix_betweenness_random)
-  deleted_nodes_random <- rbind(deleted_nodes_random, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
-}
-print(deleted_nodes_random)
-# ig.bac 
-proportion_gl <- seq(0, min(max_remove_nodes_gl, length(deleted_nodes_gl$natural_connectivity) - 1)) / total_nodes_gl
-data_gl <- data.frame(
-  removed_proportion = proportion_gl,
-  natural_connectivity_b = deleted_nodes_gl$natural_connectivity,
-  network = "bacteria network"
-)
 
-# ig.bacvir 
-proportion_bacvir <- seq(0, min(max_remove_nodes_bacvir, length(deleted_nodes_bacvir$natural_connectivity) - 1)) / total_nodes_bacvir
-data_bacvir <- data.frame(
-  removed_proportion = proportion_bacvir,
-  natural_connectivity_b = deleted_nodes_bacvir$natural_connectivity,
-  network = "bacteria-virus network"
-)
-
-# ig.random
-proportion_random <- seq(0, min(max_remove_nodes_random, length(deleted_nodes_random$natural_connectivity) - 1)) / total_nodes_random
-data_random <- data.frame(
-  removed_proportion = proportion_random,
-  natural_connectivity_b = deleted_nodes_random$natural_connectivity,
-  network = "random network"
-)
-#svg("betweeness.svg", width = 10, height = 10)
-dat_b <- rbind(data_gl, data_bacvir, data_random)
-b <- ggplot(dat_b, aes(x = removed_proportion, y = natural_connectivity_b, color = network)) +
-  geom_point() +
-  geom_smooth(method = "loess", se = FALSE) +  
-  labs(title = "Natural Connectivity vs. Proportion of Nodes Removed (Betweenness)",
-       x = "Proportion of Removed Nodes",
-       y = "Natural Connectivity") +
-  theme_minimal()+
-  theme(plot.title = element_text(size = 10))
-print(b)
-library(dplyr)
-areas <- dat_b %>%
-  group_by(network) %>%
-  do({
-    loess_fit <- loess(natural_connectivity_b ~ removed_proportion, data = .)
-    x_vals <- seq(min(.$removed_proportion), max(.$removed_proportion), length.out = 200)
-    y_vals <- predict(loess_fit, newdata = data.frame(removed_proportion = x_vals))
-    area <- sum(diff(x_vals) * (head(y_vals, -1) + tail(y_vals, -1)) / 2)
-    data.frame(network = unique(.$network), area = area)
-  })
-print(areas)
-#dev.off
-
-###degree
-# attack network based on degree
+#Degree
+node_order_degree_gl <- order(degree(ig.bac_0.01), decreasing = TRUE)
+node_order_degree_bacvir <- order(degree(ig.bacvir_0.01), decreasing = TRUE)
+deleted_nodes_gl <- data.frame(node = character(), natural_connectivity = numeric())
+deleted_nodes_bacvir <- data.frame(node = character(), natural_connectivity = numeric())
+natural_d_connectivity_vals_gl <- c(nc(as_adjacency_matrix(ig.bac_0.01, sparse = FALSE)))
+natural_d_connectivity_vals_bacvir <- c(nc(as_adjacency_matrix(ig.bacvir_0.01, sparse = FALSE)))
+# attack nodes based on degree
 deleted_nodes_gl <- data.frame(node = "0", natural_connectivity = nc(as_adjacency_matrix(ig.bac_0.01, sparse = FALSE)))
 for (i in 1:min(max_remove_nodes_gl, length(node_order_degree_gl))) {
   ig.gl_degree <- delete_vertices(ig.bac_0.01, node_order_degree_gl[1:i])
   adj_matrix_degree_gl <- as_adjacency_matrix(ig.gl_degree, sparse = FALSE)
-  # got deleted node name
+  # 获取当前删除的节点名称
   current_node_name <- V(ig.bac_0.01)$label[node_order_degree_gl[i]]
-  # calculate nc
+  # 计算自然连通度
   current_connectivity <- nc(adj_matrix_degree_gl)
-  # save node name and nc
+  # 存储节点名称和自然连通度
   deleted_nodes_gl <- rbind(deleted_nodes_gl, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
 }
 print(deleted_nodes_gl)
@@ -1481,82 +1390,14 @@ for (i in 1:min(max_remove_nodes_bacvir, length(node_order_degree_bacvir))) {
   ig.bacvir_degree <- delete_vertices(ig.bacvir_0.01, node_order_degree_bacvir[1:i])
   adj_matrix_degree_bacvir <- as_adjacency_matrix(ig.bacvir_degree, sparse = FALSE)
   current_node_name <- V(ig.bacvir_0.01)$label[node_order_degree_bacvir[i]]
-  # calculate nc 
   current_connectivity <- nc(adj_matrix_degree_bacvir)
-  # save node name and nc
   deleted_nodes_bacvir <- rbind(deleted_nodes_bacvir, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
 }
 print(deleted_nodes_bacvir)
-#random
-# ig.random
-deleted_nodes_random <- data.frame(node = "0", natural_connectivity = nc(as_adjacency_matrix(ig.random_0.01, sparse = FALSE)))
-for (i in 1:min(max_remove_nodes_random, length(node_order_degree_random))) {
-  ig.random_degree <- delete_vertices(ig.random_0.01, node_order_degree_random[1:i])
-  adj_matrix_degree_random <- as_adjacency_matrix(ig.random_degree, sparse = FALSE)
-  current_node_name <- if (node_order_degree_random[i] <= length(V(ig.random_0.01))) {
-    V(ig.random_0.01)$label[node_order_degree_random[i]]
-  } else {
-    NA
-  }
-  
-  # calculate nc
-  current_connectivity <- nc(adj_matrix_degree_random)
-  # save node name
-  deleted_nodes_random <- rbind(deleted_nodes_random, data.frame(node = current_node_name, natural_connectivity = current_connectivity))
-}
-print(deleted_nodes_random)
-
-proportion_gl <- seq(0, min(max_remove_nodes_gl, length(deleted_nodes_gl$natural_connectivity) - 1)) / total_nodes_gl
-data_gl <- data.frame(
-  removed_proportion = proportion_gl,
-  natural_connectivity_d = deleted_nodes_gl$natural_connectivity,
-  network = "bacteria network"
-)
-
-# ig.bacvir
-proportion_bacvir <- seq(0, min(max_remove_nodes_bacvir, length(deleted_nodes_bacvir$natural_connectivity) - 1)) / total_nodes_bacvir
-data_bacvir <- data.frame(
-  removed_proportion = proportion_bacvir,
-  natural_connectivity_d = deleted_nodes_bacvir$natural_connectivity,
-  network = "bacteria-virus network"
-)
-
-# ig.random
-proportion_random <- seq(0, min(max_remove_nodes_random, length(deleted_nodes_random$natural_connectivity) - 1)) / total_nodes_random
-data_random <- data.frame(
-  removed_proportion = proportion_random,
-  natural_connectivity_d = deleted_nodes_random$natural_connectivity,
-  network = "random network"
-)
-#svg("degree.svg", width = 10, height = 10)
-dat_d <- rbind(data_gl, data_bacvir, data_random)
-d <- ggplot(dat_d, aes(x = removed_proportion, y = natural_connectivity_d, color = network)) +
-  geom_point() +
-  geom_smooth(method = "loess", se = FALSE) +  # 使用局部加权回归平滑
-  labs(title = "Natural Connectivity vs. Proportion of Nodes Removed (Degree)",
-       x = "Proportion of Removed Nodes",
-       y = "Natural Connectivity") +
-  
-  theme_minimal()+
-  theme(plot.title = element_text(size = 10))
-print(d)
-library(dplyr)
-areas <- dat_d %>%
-  group_by(network) %>%
-  do({
-    loess_fit <- loess(natural_connectivity_d ~ removed_proportion, data = .)
-    x_vals <- seq(min(.$removed_proportion), max(.$removed_proportion), length.out = 100)
-    y_vals <- predict(loess_fit, newdata = data.frame(removed_proportion = x_vals))
-    area <- sum(diff(x_vals) * (head(y_vals, -1) + tail(y_vals, -1)) / 2)
-    data.frame(network = unique(.$network), area = area)
-  })
-print(areas)
-#dev.off
-
-### random
+# Random
 adj_matrix_gl <- as_adjacency_matrix(ig.bac_0.01, sparse = FALSE)
 adj_matrix_bacvir <- as_adjacency_matrix(ig.bacvir_0.01, sparse = FALSE)
-adj_matrix_random <- as_adjacency_matrix(ig.random_0.01, sparse = FALSE)
+adj_matrix_random <- as_adjacency_matrix(ig.random_0.1, sparse = FALSE)
 
 max_remove_nodes_gl <- ceiling(0.8 * total_nodes_gl)
 max_remove_nodes_bacvir <- ceiling(0.8 * total_nodes_bacvir)
@@ -1578,21 +1419,29 @@ for (i in 1:max_remove_nodes_bacvir) {
   natural_connectivity_remove_bacvir <- nc(adj_matrix2_bacvir)
   natural_connectivity_bacvir <- c(natural_connectivity_bacvir, natural_connectivity_remove_bacvir)
 }
-for (i in 1:max_remove_nodes_random) {
-  remove_node <- sample(1:total_nodes_random, i)
-  adj_matrix2_random <- adj_matrix_random[-remove_node, -remove_node]
-  natural_connectivity_remove_random <- nc(adj_matrix2_random)
-  natural_connectivity_random <- c(natural_connectivity_random, natural_connectivity_remove_random)
-}
-
 removed_proportion_gl <- 0:max_remove_nodes_gl / total_nodes_gl
 removed_proportion_bacvir <- 0:max_remove_nodes_bacvir / total_nodes_bacvir
-removed_proportion_random <- 0:max_remove_nodes_random / total_nodes_random
 dat <- data.frame(
-  removed_proportion = c(removed_proportion_gl, removed_proportion_bacvir,removed_proportion_random),
-  natural_connectivity = c(natural_connectivity_gl, natural_connectivity_bacvir, natural_connectivity_random),
-  network = rep(c("bacteria network", "bacteria-virus network","random network"), c(length(natural_connectivity_gl), length(natural_connectivity_bacvir),length(natural_connectivity_random)))
+  removed_proportion = c(removed_proportion_gl, removed_proportion_bacvir),
+  natural_connectivity = c(natural_connectivity_gl, natural_connectivity_bacvir),
+  network = rep(c("bacteria network", "bacteria-virus network"), c(length(natural_connectivity_gl), length(natural_connectivity_bacvir)))
 )
+rm(areas)
+areas <- dat %>%
+  group_by(network) %>%
+  summarize(
+    area = auc(removed_proportion, natural_connectivity) 
+  )
+print(areas)
+areas <- areas %>% 
+  mutate(label = paste0(network, " (AUC = ", round(area, 3), ")"))
+ordered_areas <- areas[match(unique(dat$network), areas$network), ]
+
+auc_text <- paste(
+  "AUC:\n",
+  paste0(ordered_areas$network, ": ", round(ordered_areas$area, 3), collapse = "\n")
+)
+
 library(ggplot2)
 #svg("random.svg", width = 10, height = 10)
 r <- ggplot(dat, aes(removed_proportion, natural_connectivity, color = network)) +
@@ -1601,19 +1450,15 @@ r <- ggplot(dat, aes(removed_proportion, natural_connectivity, color = network))
   theme_minimal(base_family = "Arial") +
   labs(x = "Removed Proportion", y = "Natural Connectivity", title = "Natural Connectivity with randomly Removed node Proportion") +
   theme_minimal()+
-  theme(plot.title = element_text(size = 10))
+  annotate(
+    "text", x = 1.05, y = max(dat$natural_connectivity), 
+    label = auc_text, hjust = 0, vjust = 1, size = 3, 
+    color = "black", family = "Arial",
+    inherit.aes = FALSE              
+  ) +
+  theme(plot.title = element_text(size = 10))+
+  coord_cartesian(clip = "off") 
 print(r)
-library(dplyr)
-areas <- dat %>%
-  group_by(network) %>%
-  do({
-    loess_fit <- loess(natural_connectivity ~ removed_proportion, data = .)
-    x_vals <- seq(min(.$removed_proportion), max(.$removed_proportion), length.out = 100)
-    y_vals <- predict(loess_fit, newdata = data.frame(removed_proportion = x_vals))
-    area <- sum(diff(x_vals) * (head(y_vals, -1) + tail(y_vals, -1)) / 2)
-    data.frame(network = unique(.$network), area = area)
-  })
-print(areas)
-#dev.off
+
 
 ```
