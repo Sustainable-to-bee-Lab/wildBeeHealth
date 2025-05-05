@@ -981,13 +981,6 @@ spiec.bac_0.01.out=spiec.easi(bac_f_data_0.01,
                               lambda.min.ratio=0.8,
                               nlambda=500,
                               pulsar.params=list(thresh=0.1))
-spiec.bacvir_0.01.out=spiec.easi(list(bac_f_data_0.01,vir_f_data_0.01), 
-                                 method="glasso",
-                                 icov.select.params=list(rep.num=100),
-                                 lambda.min.ratio=0.8,
-                                 nlambda=500,
-                                 pulsar.params=list(thresh=0.1))
-
 library(igraph)
 ig.bac_0.01     <- adj2igraph(getRefit(spiec.bac_0.01.out))
 adjacency_unweight_0.01 <- data.frame(as.matrix(spiec.bac_0.01.out$refit$stars))
@@ -1003,13 +996,18 @@ E(ig.bac_0.01)$weight <- elist.bac_0.01$weight
 adjacency_weight_bac_0.01 <- as.matrix(as_adjacency_matrix(ig.bac_0.01, attr = 'weight'))
 rownames(adjacency_weight_bac_0.01) <- rownames(bac_filt_data_0.01)
 colnames(adjacency_weight_bac_0.01) <- rownames(bac_filt_data_0.01)
-edge.bac_0.01 <- data.frame(as_edgelist(ig.bac_0.01))
-edge.bac_0.01 <- data.frame(source = edge.bac_0.01[[1]], 
-                            target = edge.bac_0.01[[2]], 
-                            weight = E(ig.bac_0.01)$weight)
-dd.bac_0.01     <- degree_distribution(ig.bac_0.01)
-points(0:(length(dd.gl)-1), dd.gl, type='b')
+se.bacvir_0.01.weighted <- graph_from_adjacency_matrix(adjacency_weight_bac_0.01,
+                                              mode="undirected",
+                                              weighted=TRUE,
+                                              diag=FALSE)
+se.bacvir_0.01.weighted_weight <- E(se.bac_0.01.weighted)$weight
 
+spiec.bacvir_0.01.out=spiec.easi(list(bac_f_data_0.01,vir_f_data_0.01), 
+                                 method="glasso",
+                                 icov.select.params=list(rep.num=50),
+                                 lambda.min.ratio=0.8,
+                                 nlambda=500,
+                                 pulsar.params=list(thresh=0.1))
 ig.bacvir_0.01     <- adj2igraph(getRefit(spiec.bacvir_0.01.out))
 summary(spiec.bacvir_0.01.out)
 adjacency_unweight_bacvir <- data.frame(as.matrix(spiec.bacvir_0.01.out$refit$stars))
@@ -1026,23 +1024,18 @@ adjacency_weight_bacvir_0.01 <- as.matrix(as_adjacency_matrix(ig.bacvir_0.01, at
 combined_rownames <- c(rownames(bac_filt_data_0.01), rownames(vir_data))
 rownames(adjacency_weight_bacvir_0.01) <- rownames(combined_rownames)
 colnames(adjacency_weight_bacvir_0.01) <- rownames(combined_rownames)
-edge.bacvir_0.01 <- data.frame(as_edgelist(ig.bacvir_0.01))
-edge.bacvir_0.01 <- data.frame(source = edge.bacvir_0.01[[1]], 
-                               target = edge.bacvir_0.01[[2]], 
-                               weight = E(ig.bacvir_0.01)$weight)
-dd.bacvir_0.01 <- degree_distribution(ig.bacvir_0.01)
+se.bacvir_0.01.weighted <- graph_from_adjacency_matrix(adjacency_weight_bacvir_0.01,
+                                                       mode="undirected",
+                                                       weighted=TRUE,
+                                                       diag=FALSE)
+V(se.bacvir_0.01.weighted)$name <- rownames(adjacency_weight_bacvir_0.01)
+se.bacvir_0.01.weighted_weight <- E(se.bacvir_0.01.weighted)$weight
 
 # visualization
 ## bacteria
 library(colorspace)
-
-E.color.bac_0.01 <- ifelse(se.bac_0.01.weighted_weight > 0, "lightgrey", 
-                           ifelse(se.bac_0.01.weighted_weight < 0, "lightgrey", "lightgrey"))
-E(se.bac_0.01.weighted)$color <- as.character(E.color.bac_0.01)
-V(se.bac_0.01.weighted)$frame.color <- rgb(0.5, 0.5, 0.5, 0.5)  # 半透明灰色 (50% 灰 + 50% 透明)
-
+V(se.bac_0.01.weighted)$frame.color <- rgb(0.5, 0.5, 0.5, 0.5)  
 vsize    <- rowMeans(clr(bac_f_data_0.01,1))*0.9+5
-
 label_color <- "black"
 label <- rownames(bac_filt_data_0.01)
 label_font <- 3
@@ -1054,16 +1047,11 @@ library(RColorBrewer)
 comps = membership(fc)
 module_sizes <- table(comps)  
 valid_modules <- names(module_sizes[module_sizes > 1])  
-
 num_colors <- length(valid_modules) 
 colbar <- qualitative_hcl(num_colors, palette = "Set3") 
-
 module_colors <- adjustcolor(colbar, alpha.f = 0.2)
-
 node_colors <- module_colors[match(comps, valid_modules)]
-
 node_colors[is.na(node_colors)] <- "#D3D3D3"
-
 V(se.bac_0.01.weighted)$color <- node_colors
 
 for (i in seq_along(valid_modules)) {
@@ -1091,26 +1079,15 @@ plot(se.bac_0.01.weighted,
 
 ## bacteria-virus
 bvNode <- bvNode_0_01_t_0_1
-
-
 par(family = "Arial")
 colnames(adjacency_weight_bacvir_0.01) <- rownames(adjacency_weight_bacvir_0.01)
-se.bacvir_0.01.weighted <- graph_from_adjacency_matrix(adjacency_weight_bacvir_0.01,
-                                                       mode="undirected",
-                                                       weighted=TRUE,
-                                                       diag=FALSE)
-V(se.bacvir_0.01.weighted)$name <- rownames(adjacency_weight_bacvir_0.01)
-se.bacvir_0.01.weighted_weight <- E(se.bacvir_0.01.weighted)$weight
-
 V(se.bacvir_0.01.weighted)$polygon <- bvNode$polygon[match(V(se.bacvir_0.01.weighted)$name, bvNode$id)]
 V(se.bacvir_0.01.weighted)$lifestyle <- bvNode$lifestyle[match(V(se.bacvir_0.01.weighted)$name, bvNode$id)]
 E(se.bacvir_0.01.weighted)$weight = NA
 am.coord <- layout.kamada.kawai(ig.bacvir_0.01, weights=NA)
 sum(se.bacvir_0.01.weighted_weight>0)
 sum(se.bacvir_0.01.weighted_weight<0)
-
 E.color = se.bacvir_0.01.weighted_weight
-
 E.color = ifelse(E.color>0, "grey",
                  ifelse(E.color<0, "black","grey"))
 E.lty_1 = se.bacvir_0.01.weighted_weight
@@ -1119,11 +1096,8 @@ E.lty = ifelse(E.lty_1>0, 1,
 E(se.bacvir_0.01.weighted)$lty = as.character(E.lty)
 E(se.bacvir_0.01.weighted)$color = as.character(E.color)
 E(se.bacvir_0.01.weighted)$width = abs(se.bacvir_0.01.weighted_weight)*5
-
 num_otus_bac <- ncol(bac_f_data_0.01)
 num_otus_vir <- ncol(vir_f_data_0.01)
-
-
 vsize <- rowMeans(clr(cbind(bac_f_data_0.01,vir_f_data_0.01),1))*0.9+5
 label <- c(rownames(bac_filt_data_0.01), rep(NA, num_otus_vir)) 
 
@@ -1132,19 +1106,13 @@ library(RColorBrewer)
 fc = cluster_fast_greedy(ig.bacvir_0.01,weights = NA)
 modularity = modularity(ig.bacvir_0.01,membership(fc))
 library(colorspace)
-
 comps <- membership(fc)
-
 library(colorspace)
-
 module_sizes <- table(comps)  
 valid_modules <- names(module_sizes[module_sizes > 1]) 
-
 num_colors <- length(valid_modules)  
 colbar <- qualitative_hcl(num_colors, palette = "Set3")  
-
 module_colors <- adjustcolor(colbar, alpha.f = 0.2)
-
 node_colors <- module_colors[match(comps, valid_modules)]  
 node_colors[is.na(node_colors)] <- "#D3D3D3"  
 
@@ -1163,7 +1131,6 @@ mytriangle <- function(coords, v = NULL, params) {
   if (length(vertex.size) != 1 && !is.null(v)) {
     vertex.size <- vertex.size[v]
   }
-  
   symbols(
     x = coords[, 1], y = coords[, 2], bg = vertex.color,
     stars = cbind(vertex.size, vertex.size, vertex.size),
@@ -1197,10 +1164,8 @@ mytriangle <- function(coords, v = NULL, params) {
     x <- coords[i, 1]
     y <- coords[i, 2]
     size <- vertex.size[i]
-    
     triangle_x <- c(x, x - size, x + size)
     triangle_y <- c(y + size, y - size, y - size)
-    
     polygon(
       triangle_x, triangle_y, 
       col = vertex.color[i],
@@ -1247,19 +1212,15 @@ legend("topright",
        title = "Node Type")  
 ## subgraph
 neighbors_52_46 <- unlist(ego(se.bacvir_0.01.weighted, order = 1, nodes = c("52", "46")))
-
 subgraph_52_46 <- induced_subgraph(se.bacvir_0.01.weighted, vids = neighbors_52_46)
 
 V(subgraph_52_46)$label <- bvNode$Label[match(V(subgraph_52_46)$name, bvNode$id)]
 V(subgraph_52_46)$vsize <- vsize[match(V(subgraph_52_46)$label, names(vsize))]
 V(subgraph_52_46)$polygon <- bvNode$polygon[match(V(subgraph_52_46)$name, bvNode$id)]
 V(subgraph_52_46)$color <- V(se.bacvir_0.01.weighted)$color[match(V(subgraph_52_46)$name, V(se.bacvir_0.01.weighted)$name)]
-
 edge_list <- ends(subgraph_52_46, E(subgraph_52_46))
-
 polygon_start <- V(subgraph_52_46)$polygon[match(edge_list[, 1], V(subgraph_52_46)$name)]
 polygon_end <- V(subgraph_52_46)$polygon[match(edge_list[, 2], V(subgraph_52_46)$name)]
-
 edges_to_keep <- which(
   polygon_start == 1 | polygon_end == 1
 )
@@ -1301,31 +1262,19 @@ legend("topright",
 # stability
 # define nc 
 nc <- function(adj_matrix) {
-  # 获取 0-1 矩阵，1 表示节点间存在边，0 表示不存在边
   adj_matrix <- as.matrix(adj_matrix)
   adj_matrix[abs(adj_matrix) != 0] <- 1
-  
-  # 矩阵的特征分解，获取特征值 λ
   lambda <- eigen(adj_matrix, only.values = TRUE)$values
   lambda <- sort(lambda, decreasing = TRUE)
-  
-  # 计算“平均特征根”，获得自然连通度 (NC)
   lambda_sum <- sum(exp(lambda))
   N <- length(lambda)
   nc <- log(lambda_sum / N, base = exp(1))
-  
-  # 构造全连通图的邻接矩阵
-  complete_graph <- matrix(1, nrow = N, ncol = N) # 全为 1
-  diag(complete_graph) <- 0                       # 对角线置 0
-  
-  # 计算全连通图的自然连通度 (NC_max)
+  complete_graph <- matrix(1, nrow = N, ncol = N) 
+  diag(complete_graph) <- 0                       
   lambda_complete <- eigen(complete_graph, only.values = TRUE)$values
   lambda_sum_complete <- sum(exp(lambda_complete))
   nc_max <- log(lambda_sum_complete / N, base = exp(1))
-  
-  # 正态化自然连通度
   nc_normalized <- nc / nc_max
-  
   return(nc_normalized)
 }
 
