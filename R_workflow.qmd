@@ -977,7 +977,6 @@ bac_f_data_0.01 <- as.matrix(bac_f_data_0.01)
 vir_t_data <- as.matrix(vir_t_data)
 spiec.bac_0.01.out=spiec.easi(bac_f_data_0.01, 
                               method="glasso",
-                              icov.select.params=list(rep.num=50),
                               lambda.min.ratio=0.8,
                               nlambda=500,
                               pulsar.params=list(thresh=0.1))
@@ -1004,7 +1003,6 @@ se.bacvir_0.01.weighted_weight <- E(se.bac_0.01.weighted)$weight
 
 spiec.bacvir_0.01.out=spiec.easi(list(bac_f_data_0.01,vir_f_data_0.01), 
                                  method="glasso",
-                                 icov.select.params=list(rep.num=50),
                                  lambda.min.ratio=0.8,
                                  nlambda=500,
                                  pulsar.params=list(thresh=0.1))
